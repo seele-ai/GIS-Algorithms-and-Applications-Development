@@ -1,0 +1,15 @@
+# 编译产物
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# Rider
+.idea/
+
+# 其他
+*.log

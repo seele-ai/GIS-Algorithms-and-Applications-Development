@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>GIS</RootNamespace>
+    <AssemblyName>GIS</AssemblyName>
+    <Authors>王小宇</Authors>
+    <Description>GIS小组作业 模块1：数据结构设计与地图投影实现（Geometry/Feature/FeatureClass/Layer/投影转换）</Description>
+  </PropertyGroup>
+
+</Project>
