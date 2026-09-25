@@ -905,6 +905,32 @@ namespace GISDemo
             sEmptyUnique.SetBindingError("高程");
             Check("绑定错误且无唯一值符号时同样返回不可见符号",
                 sEmptyUnique.GetSymbolFor(null) != null && !sEmptyUnique.GetSymbolFor(null).Visible);
+
+            // 图例标题默认跟随绑定字段：读取已有渲染符号文件后重新绑定字段，标题必须一起更新，
+            // 否则图层面板里显示的字段会一直停在文件里的旧字段名上（“绑定字段固定、无法更改”）。
+            var sRebindSeed = new ClassBreaksRenderer();
+            sRebindSeed.Field = "高程";
+            sRebindSeed.AddBreakValue(10, new SimpleMarkerSymbol { Color = System.Drawing.Color.Red });
+            var sRebind = (ClassBreaksRenderer)RendererFile.Parse(
+                RendererFile.ToLines(sRebindSeed, GeometryTypeConstant.Point), RendererFile.PointExtension, null);
+            Check("读取渲染符号文件后图例标题等于绑定字段",
+                sRebind.Field == "高程" && sRebind.HeadTitle == "高程");
+            sRebind.Field = "数值";
+            Check("重新绑定字段后图例标题跟随新字段（不再固定在旧字段名）",
+                sRebind.Field == "数值" && sRebind.HeadTitle == "数值");
+
+            var sCustomTitle = new ClassBreaksRenderer();
+            sCustomTitle.Field = "高程";
+            sCustomTitle.HeadTitle = "自定义标题";
+            sCustomTitle.Field = "数值";
+            Check("显式设置过的图例标题不会被绑定字段覆盖", sCustomTitle.HeadTitle == "自定义标题");
+
+            var sUniqueRebind = new UniqueValueRenderer();
+            sUniqueRebind.Field = "类型";
+            sUniqueRebind.AddValue("学校", new SimpleMarkerSymbol());
+            sUniqueRebind.Field = "名称";
+            Check("唯一值渲染的图例标题同样跟随绑定字段",
+                sUniqueRebind.Field == "名称" && sUniqueRebind.HeadTitle == "名称");
         }
 
         private static bool IsParseOk(string[] lines, string extension, FeatureClass target)

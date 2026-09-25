@@ -194,10 +194,12 @@ namespace GIS.Display
             Renderer r = Layer.Renderer;
             bool bindingError = r != null && r.HasBindingError;
 
+            // 图例标题就是绑定字段名（ShowHead=false 时不显示标题）：
+            // 重新绑定字段后标题会跟着更新，因此这里显示的字段永远与当前绑定一致。
             if (r is UniqueValueRenderer ur && ur.ValueCount > 0)
-                symbolArea.Height = AttachLegend(ur.HeadTitle, ur.ValueCount, i => ur.GetSymbol(i), i => LabelOf(ur.GetSymbol(i), ur.GetValue(i)), ur, ur.DefaultSymbol, "（其他值）", bindingError);
+                symbolArea.Height = AttachLegend(ur.ShowHead ? ur.HeadTitle : "", ur.ValueCount, i => ur.GetSymbol(i), i => LabelOf(ur.GetSymbol(i), ur.GetValue(i)), ur, ur.DefaultSymbol, "（其他值）", bindingError);
             else if (r is ClassBreaksRenderer cr && cr.BreakCount > 0)
-                symbolArea.Height = AttachLegend(cr.HeadTitle, cr.BreakCount, i => cr.GetSymbol(i), i => LabelOf(cr.GetSymbol(i), RangeLabel(cr, i)), cr, null, null, bindingError);
+                symbolArea.Height = AttachLegend(cr.ShowHead ? cr.HeadTitle : "", cr.BreakCount, i => cr.GetSymbol(i), i => LabelOf(cr.GetSymbol(i), RangeLabel(cr, i)), cr, null, null, bindingError);
             else
                 symbolArea.Height = AttachSingleSymbol();
 

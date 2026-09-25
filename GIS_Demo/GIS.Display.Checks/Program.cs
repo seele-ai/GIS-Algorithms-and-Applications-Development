@@ -768,6 +768,67 @@ internal static class Program
             uniqueForm.Hide();
         }
 
+        // 4d) 回归：读取已有分级渲染符号后，图层面板下方显示的绑定字段必须能随重新绑定而更新
+        //     （图例标题此前只在为空时跟随字段，读入文件后标题被写成旧字段名，于是看起来“字段固定、改不了”）
+        {
+            var fc2 = new FeatureClass("分级图层2", GeometryTypeConstant.Point);
+            fc2.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+            fc2.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+            for (int i = 0; i < 3; i++)
+            {
+                var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), fc2.Fields);
+                f.Attributes.SetItem("名称", "点" + (i + 1));
+                f.Attributes.SetItem("数值", (i + 1) * 10.0);
+                fc2.Add(f);
+            }
+            var layer2 = new Layer("分级图层2", fc2) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+            var seedRenderer = new ClassBreaksRenderer();
+            seedRenderer.Field = "高程";   // 文件里绑定的字段（当前图层中不存在）
+            seedRenderer.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+            layer2.Renderer = RendererFile.Parse(
+                RendererFile.ToLines(seedRenderer, GeometryTypeConstant.Point), RendererFile.PointExtension, null);
+
+            using (var map = new MapControl { Size = new Size(400, 300) })
+            using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
+            {
+                var handle = map.Handle;
+                manager.Bind(map);
+                map.AddLayer(layer2);
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                Check(LegendHasText(manager, "高程"), "读取分级渲染符号后，图层面板显示文件里的绑定字段");
+
+                using (var form = LayerRendererForm.Create(layer2))
+                {
+                    form.ShowInTaskbar = false;
+                    form.Opacity = 0;
+                    form.Show();
+                    Application.DoEvents();
+                    var tabs2 = FindControl<TabControl>(form);
+                    tabs2.SelectedIndex = 2;                                        // 分级渲染选项卡
+                    var fieldCombo = FindControl<ComboBox>(tabs2.TabPages[2]);      // 该选项卡里的“字段”下拉框
+                    fieldCombo.SelectedItem = "数值";
+                    Button gen2 = null, apply3 = null;
+                    foreach (Button b in AllButtons(form))
+                    {
+                        if (b.Text == "生成") gen2 = b;
+                        if (b.Text == "应用") apply3 = b;
+                    }
+                    gen2.PerformClick();
+                    apply3.PerformClick();
+                    form.Hide();
+                }
+                Check(layer2.Renderer is ClassBreaksRenderer && layer2.Renderer.BoundField == "数值",
+                    "重新绑定后渲染器的绑定字段为“数值”");
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                Check(LegendHasText(manager, "数值") && !LegendHasText(manager, "高程"),
+                    "重新绑定字段后图层面板显示的字段同步更新（不再固定为旧字段）");
+            }
+        }
+
         // 5) 坐标系统一：非 WGS84 图层在面板中以橙色标注坐标系，转换到 WGS84 后恢复
         using (var map = new MapControl { Size = new Size(400, 300) })
         using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
@@ -1040,5 +1101,14 @@ internal static class Program
             list.AddRange(AllListBoxes(child));
         }
         return list;
+    }
+
+    // 图层面板里是否存在文本完全等于 text 的标签（用于检查图例标题＝绑定字段）
+    private static bool LegendHasText(LayerManagerControl manager, string text)
+    {
+        foreach (LayerControl row in manager.LayerRows)
+            foreach (Label label in AllLabels(row))
+                if (label.Text == text) return true;
+        return false;
     }
 }

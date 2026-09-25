@@ -25,10 +25,20 @@ namespace GIS
         }
 
         /// <summary>获取或设置绑定字段名</summary>
+        /// <summary>
+        /// 获取或设置绑定的属性字段名。图例标题（HeadTitle）默认跟随绑定字段：
+        /// 标题为空（从未设置）或仍等于原字段名（自动生成的标题）时会一起更新，
+        /// 只有显式改过标题才不再跟随。否则读取已有渲染符号文件后重新绑定字段时，
+        /// 图层面板里显示的字段会一直停在旧字段名上（看起来“绑定字段改不了”）。
+        /// </summary>
         public string Field
         {
             get { return _Field; }
-            set { _Field = value; if (_HeadTitle == "") _HeadTitle = value; }
+            set
+            {
+                if (string.IsNullOrEmpty(_HeadTitle) || _HeadTitle == _Field) _HeadTitle = value;
+                _Field = value;
+            }
         }
 
         /// <summary>获取或设置图例标题</summary>
