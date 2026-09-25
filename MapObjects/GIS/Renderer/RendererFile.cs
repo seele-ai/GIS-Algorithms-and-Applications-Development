@@ -480,6 +480,9 @@ namespace GIS
                 case SimpleMarkerSymbolStyleConstant.Square: return "方形";
                 case SimpleMarkerSymbolStyleConstant.Triangle: return "三角形";
                 case SimpleMarkerSymbolStyleConstant.Cross: return "十字";
+                case SimpleMarkerSymbolStyleConstant.Star: return "五角星";
+                case SimpleMarkerSymbolStyleConstant.SolidDotCircle: return "实心点圆环";
+                case SimpleMarkerSymbolStyleConstant.HollowDotCircle: return "空心点圆环";
                 case SimpleMarkerSymbolStyleConstant.Exclamation: return "感叹号";
                 default: return "圆形";
             }
@@ -492,6 +495,9 @@ namespace GIS
                 case "方形": return SimpleMarkerSymbolStyleConstant.Square;
                 case "三角形": return SimpleMarkerSymbolStyleConstant.Triangle;
                 case "十字": return SimpleMarkerSymbolStyleConstant.Cross;
+                case "五角星": return SimpleMarkerSymbolStyleConstant.Star;
+                case "实心点圆环": return SimpleMarkerSymbolStyleConstant.SolidDotCircle;
+                case "空心点圆环": return SimpleMarkerSymbolStyleConstant.HollowDotCircle;
                 case "感叹号": return SimpleMarkerSymbolStyleConstant.Exclamation;
                 default: return SimpleMarkerSymbolStyleConstant.Circle;
             }

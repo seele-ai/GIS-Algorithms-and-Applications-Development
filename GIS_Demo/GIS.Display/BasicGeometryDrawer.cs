@@ -273,6 +273,37 @@ namespace GIS.Display
                 }
                 return;
             }
+            // 五角星（首都等）：一个角朝上，外接圆半径 = Size/2，凹角半径按正五角星比例 0.382
+            if (symbol.Style == SimpleMarkerSymbolStyleConstant.Star)
+            {
+                PointF[] star = StarPoints(center, half);
+                if (fill)
+                    using (var brush = new SolidBrush(symbol.Color)) g.FillPolygon(brush, star);
+                if (outline)
+                    using (var pen = new Pen(symbol.OutlineColor, outlineW)) g.DrawPolygon(pen, star);
+                return;
+            }
+            // 中心点 + 外围空心圈（省会＝中心实心点，普通城市＝中心空心点）
+            if (symbol.Style == SimpleMarkerSymbolStyleConstant.SolidDotCircle
+                || symbol.Style == SimpleMarkerSymbolStyleConstant.HollowDotCircle)
+            {
+                Color ink = fill ? symbol.Color : (outline ? symbol.OutlineColor : Color.Black);
+                float ringW = Math.Max(0.8f, Math.Min(outlineW, size / 3f));
+                using (var pen = new Pen(ink, ringW))
+                    g.DrawEllipse(pen, new RectangleF(rect.X + ringW / 2, rect.Y + ringW / 2,
+                        rect.Width - ringW, rect.Height - ringW));
+                float dotR = Math.Max(size / 6f, ringW * 1.2f);
+                dotR = Math.Min(dotR, half - ringW * 1.5f);
+                if (dotR > 0.5f)
+                {
+                    var dot = new RectangleF(center.X - dotR, center.Y - dotR, dotR * 2, dotR * 2);
+                    if (symbol.Style == SimpleMarkerSymbolStyleConstant.SolidDotCircle)
+                        using (var brush = new SolidBrush(ink)) g.FillEllipse(brush, dot);
+                    else
+                        using (var pen = new Pen(ink, ringW)) g.DrawEllipse(pen, dot);
+                }
+                return;
+            }
             PointF[] triangle = new[]
             {
                 new PointF(center.X, center.Y - half),
@@ -297,6 +328,24 @@ namespace GIS.Display
                     else g.DrawEllipse(pen, rect);
                 }
             }
+        }
+
+        /// <summary>
+        /// 五角星的 10 个顶点：外接圆半径为 r、一个角朝上（-90°），凹角半径为 0.382r（正五角星的比例）。
+        /// </summary>
+        private static PointF[] StarPoints(PointF center, float r)
+        {
+            var points = new PointF[10];
+            double inner = r * 0.382;
+            for (int i = 0; i < points.Length; i++)
+            {
+                double radius = i % 2 == 0 ? r : inner;
+                double angle = -Math.PI / 2 + i * Math.PI / 5.0;
+                points[i] = new PointF(
+                    (float)(center.X + radius * Math.Cos(angle)),
+                    (float)(center.Y + radius * Math.Sin(angle)));
+            }
+            return points;
         }
 
         private static void DrawLineScreen(Graphics g, PointF[] pts, SimpleLineSymbol symbol, double dpm)

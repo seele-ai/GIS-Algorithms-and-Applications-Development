@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -68,11 +68,11 @@ internal static class Program
                 form.Show();
                 Application.DoEvents();
                 form.LoadSamples();
-                Check(form.Map.Layers.Count == 5, "演示程序加载5个样例图层");
-                Check(form.Map.Layers.Sum(l => l.FeatureClass.Features.Count) == 9, "演示程序包含9个样例要素");
+                Check(form.Map.Layers.Count == 6, "演示程序加载6个样例图层");
+                Check(form.Map.Layers.Sum(l => l.FeatureClass.Features.Count) == 12, "演示程序包含12个样例要素");
                 Check(form.Map.Visible && form.Map.Width > 500 && form.Map.Height > 250, "地图控件可见且布局尺寸有效");
                 var manager = FindControl<LayerManagerControl>(form);
-                Check(manager.LayerRows.Count == 5, "图层面板列出5个图层");
+                Check(manager.LayerRows.Count == 6, "图层面板列出6个图层");
                 Check(manager.LayerRows[0].Layer == form.Map.Layers.Last(), "图层面板按顶层优先列出");
                 var firstRow = manager.LayerRows[0];
                 firstRow.ToggleVisible();
@@ -569,6 +569,57 @@ internal static class Program
             Check(DiffPixels(plain, offset) > 20, "偏移特性会把本段整体平移");
             Check(DiffPixels(plain, extend) > 100, "延长特性会把本段两端向外加长");
             Check(DiffPixels(arc, offset) > 100, "弧线与偏移是互相独立的特性");
+        }
+
+        // 3.5) 新增的三种“城市点位”符号：五角星（首都）/ 实心点圆环（省会）/ 空心点圆环（普通城市）
+        var starSymbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Star, Color = Color.FromArgb(186, 58, 45), Size = 20 };
+        var dotRingSymbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.SolidDotCircle, Color = Color.FromArgb(214, 122, 30), Size = 20 };
+        var hollowRingSymbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.HollowDotCircle, Color = Color.FromArgb(70, 104, 150), Size = 20 };
+        var circleSymbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Circle, Color = Color.FromArgb(186, 58, 45), Size = 20 };
+        using (var star = DrawMarkerSample(starSymbol))
+        using (var dotRing = DrawMarkerSample(dotRingSymbol))
+        using (var hollowRing = DrawMarkerSample(hollowRingSymbol))
+        using (var circle = DrawMarkerSample(circleSymbol))
+        {
+            Check(InkAt(star, 60, 60) && InkAt(star, 60, 40) && !InkAt(star, 75, 40) && !InkAt(star, 60, 18),
+                "五角星：中心与上方尖角有墨、右上凹口与外部无墨（是星形而不是圆）");
+            Check(InkAt(circle, 75, 40), "同一位置圆形符号仍是实心的（对照，说明检查有效）");
+            Check(InkAt(dotRing, 60, 60) && !InkInRow(dotRing, 60, 60, 20, 32) && InkInRow(dotRing, 60, 60, 35, 39),
+                "中心实心点圆环：中心实心、点与圈之间为空、外圈有墨");
+            Check(!InkAt(hollowRing, 60, 60) && InkInRow(hollowRing, 60, 60, 10, 16)
+                && !InkInRow(hollowRing, 60, 60, 20, 32) && InkInRow(hollowRing, 60, 60, 35, 39),
+                "中心空心点圆环：中心为空、中心小圈与外圈有墨、两者之间为空");
+            Check(DiffPixels(star, circle) > 200 && DiffPixels(dotRing, hollowRing) > 100,
+                "三种新符号与圆形符号、彼此之间的绘制结果都不同");
+
+            // 把七种点符号画成一张对照图存到输出目录，便于人工核对形状
+            var samples = new[]
+            {
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Circle, Color = Color.FromArgb(70, 104, 150), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Square, Color = Color.FromArgb(70, 104, 150), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Triangle, Color = Color.FromArgb(70, 104, 150), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Cross, Color = Color.FromArgb(70, 104, 150), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Star, Color = Color.FromArgb(186, 58, 45), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.SolidDotCircle, Color = Color.FromArgb(214, 122, 30), Size = 14 },
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.HollowDotCircle, Color = Color.FromArgb(70, 104, 150), Size = 14 }
+            };
+            var captions = new[] { "圆形", "方形", "三角形", "十字", "五角星", "实心点圆环", "空心点圆环" };
+            using (var markerStrip = new Bitmap(samples.Length * 96, 116))
+            {
+                using (var graphics = Graphics.FromImage(markerStrip))
+                {
+                    graphics.Clear(Color.White);
+                    graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    for (int i = 0; i < samples.Length; i++)
+                    {
+                        BasicGeometryDrawer.DrawSymbol(graphics, samples[i], new Rectangle(i * 96, 0, 96, 88));
+                        using (var font = new Font("Microsoft YaHei UI", 9F))
+                        using (var format = new StringFormat { Alignment = StringAlignment.Center })
+                            graphics.DrawString(captions[i], font, Brushes.Black, i * 96 + 48, 92, format);
+                    }
+                }
+                markerStrip.Save(Path.Combine(outputDir, "marker-symbols.png"), ImageFormat.Png);
+            }
         }
 
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
@@ -1082,6 +1133,32 @@ internal static class Program
             BasicGeometryDrawer.DrawSymbol(graphics, symbol, new Rectangle(0, 0, 200, 80));
         }
         return bitmap;
+    }
+
+    private static Bitmap DrawMarkerSample(SimpleMarkerSymbol symbol)
+    {
+        var bitmap = new Bitmap(121, 121);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.Clear(Color.White);
+            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            BasicGeometryDrawer.DrawSymbol(graphics, symbol, new Rectangle(0, 0, 121, 121));
+        }
+        return bitmap;
+    }
+
+    // 指定位置是否“有墨”（非空白），用于点符号形状的像素级检查
+    private static bool InkAt(Bitmap bitmap, int x, int y)
+    {
+        return x >= 0 && y >= 0 && x < bitmap.Width && y < bitmap.Height && !IsBlank(bitmap.GetPixel(x, y));
+    }
+
+    // 以 (cx,cy) 为心、沿水平向右的 dx ∈ [from,to] 区间内是否存在墨（用于探测圆环这类细线）
+    private static bool InkInRow(Bitmap bitmap, int cx, int cy, int from, int to)
+    {
+        for (int dx = from; dx <= to; dx++)
+            if (InkAt(bitmap, cx + dx, cy)) return true;
+        return false;
     }
 
     private static int DiffPixels(Bitmap a, Bitmap b)

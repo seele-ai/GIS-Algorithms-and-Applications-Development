@@ -931,6 +931,36 @@ namespace GISDemo
             sUniqueRebind.Field = "名称";
             Check("唯一值渲染的图例标题同样跟随绑定字段",
                 sUniqueRebind.Field == "名称" && sUniqueRebind.HeadTitle == "名称");
+
+            // 新增的三种“城市点位”符号（五角星 / 实心点圆环 / 空心点圆环）也要能存取
+            var sCity = new SimpleRenderer
+            {
+                Symbol = new SimpleMarkerSymbol
+                {
+                    Style = SimpleMarkerSymbolStyleConstant.Star,
+                    Color = System.Drawing.Color.FromArgb(186, 58, 45), Size = 5,
+                    OutlineColor = System.Drawing.Color.FromArgb(120, 30, 20), OutlineWidth = 0.25
+                }
+            };
+            string[] sCityLines = RendererFile.ToLines(sCity, GeometryTypeConstant.Point);
+            Check("点符号文件写出五角星形状", Array.IndexOf(sCityLines, "形状=五角星") > 0);
+            var sCityBack = (SimpleMarkerSymbol)RendererFile.Parse(sCityLines, RendererFile.PointExtension, null).GetSymbolFor(null);
+            Check("五角星往返一致",
+                sCityBack.Style == SimpleMarkerSymbolStyleConstant.Star && AlmostEqual(sCityBack.Size, 5, 1e-9)
+                && sCityBack.OutlineColor.ToArgb() == System.Drawing.Color.FromArgb(120, 30, 20).ToArgb());
+
+            var sDotRing = (SimpleMarkerSymbol)RendererFile.Parse(
+                RendererFile.ToLines(new SimpleRenderer { Symbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.SolidDotCircle } },
+                    GeometryTypeConstant.Point), RendererFile.PointExtension, null).GetSymbolFor(null);
+            var sHollowRing = (SimpleMarkerSymbol)RendererFile.Parse(
+                RendererFile.ToLines(new SimpleRenderer { Symbol = new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.HollowDotCircle } },
+                    GeometryTypeConstant.Point), RendererFile.PointExtension, null).GetSymbolFor(null);
+            Check("实心点圆环与空心点圆环往返一致",
+                sDotRing.Style == SimpleMarkerSymbolStyleConstant.SolidDotCircle
+                && sHollowRing.Style == SimpleMarkerSymbolStyleConstant.HollowDotCircle);
+            Check("三种新形状互不相同且都不是圆形",
+                sCityBack.Style != sDotRing.Style && sDotRing.Style != sHollowRing.Style
+                && sHollowRing.Style != SimpleMarkerSymbolStyleConstant.Circle);
         }
 
         private static bool IsParseOk(string[] lines, string extension, FeatureClass target)

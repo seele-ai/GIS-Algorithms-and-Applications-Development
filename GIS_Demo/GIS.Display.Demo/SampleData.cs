@@ -72,6 +72,31 @@ namespace GIS.Display.Demo
                 new SimpleMarkerSymbol { Color = Color.FromArgb(153, 47, 57), Size = 3.6 },
                 "观测站", 500,
                 "POINT (150 450)", "POINT (370 480)", "POINT (700 300)");
+
+            // 城市：用唯一值渲染演示三种典型的点位符号
+            // 五角星＝首都、中心实心点+外围空心圈＝省会、中心空心点+外围空心圆＝普通城市
+            var cityLayer = MakeLayer("城市（典型点位符号）", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Style = SimpleMarkerSymbolStyleConstant.Star, Color = Color.FromArgb(186, 58, 45), Size = 5 },
+                "首都", 600,
+                "POINT (250 470)", "POINT (470 250)", "POINT (690 130)");
+            cityLayer.FeatureClass.Features[1].Attributes.SetItem("类型", "省会");
+            cityLayer.FeatureClass.Features[2].Attributes.SetItem("类型", "普通城市");
+            var cityRenderer = new UniqueValueRenderer { Field = "类型" };
+            cityRenderer.AddValue("首都", new SimpleMarkerSymbol
+            {
+                Style = SimpleMarkerSymbolStyleConstant.Star, Color = Color.FromArgb(186, 58, 45), Size = 5,
+                OutlineColor = Color.FromArgb(120, 30, 20), OutlineWidth = 0.25
+            });
+            cityRenderer.AddValue("省会", new SimpleMarkerSymbol
+            {
+                Style = SimpleMarkerSymbolStyleConstant.SolidDotCircle, Color = Color.FromArgb(214, 122, 30), Size = 4
+            });
+            cityRenderer.AddValue("普通城市", new SimpleMarkerSymbol
+            {
+                Style = SimpleMarkerSymbolStyleConstant.HollowDotCircle, Color = Color.FromArgb(70, 104, 150), Size = 3.6
+            });
+            cityLayer.Renderer = cityRenderer;
+            yield return cityLayer;
         }
 
         // 把虚构平面坐标（0~900 × 0~600）线性映射为经纬度，便于阅读 WKT 样例
