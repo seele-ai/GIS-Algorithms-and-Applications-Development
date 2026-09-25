@@ -27,7 +27,7 @@ namespace GIS.Display.UI
             MinimumSize = new Size(420, 0);
             Padding = new Padding(12);
 
-            styleBox.Items.AddRange(new object[] { "圆形", "方形", "三角形", "十字" });
+            styleBox.Items.AddRange(new object[] { "圆形", "方形", "三角形", "十字", "五角星", "实心点圆环", "空心点圆环" });
             // 绑定属性错误的提示符号用的是“感叹号”形状，不在上面四种可编辑形状里；
             // 直接按枚举值选中会越界（此前点击错误符号就报 ArgumentOutOfRangeException），这里钳到合法下标。
             // 只影响下拉框显示，不修改符号本身的形状（重新绑定字段生成后该符号会被整体替换）。
@@ -56,6 +56,14 @@ namespace GIS.Display.UI
             grid.Controls.Add(outlineBtn, 1, 3);
             grid.Controls.Add(new Label { Text = "边框宽度（毫米）", AutoSize = true }, 0, 4);
             grid.Controls.Add(outlineWidth, 1, 4);
+            var styleHint = new Label
+            {
+                Text = "常用点位符号：五角星＝首都，实心点圆环＝省会，空心点圆环＝普通城市。",
+                AutoSize = true, MaximumSize = new Size(340, 0), ForeColor = Color.FromArgb(90, 90, 90),
+                Margin = new Padding(3, 8, 3, 0)
+            };
+            grid.Controls.Add(styleHint, 0, 5);
+            grid.SetColumnSpan(styleHint, 2);
 
             var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
             var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };

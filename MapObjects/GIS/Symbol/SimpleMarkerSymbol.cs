@@ -21,12 +21,24 @@ namespace GIS
         /// <summary>十字</summary>
         Cross,
 
+        /// <summary>五角星（常用于首都等重要点位）</summary>
+        Star,
+
+        /// <summary>中心实心点 + 外围空心圈（常用于省会等次级点位）</summary>
+        SolidDotCircle,
+
+        /// <summary>中心空心点 + 外围空心圆（常用于普通城市等一般点位）</summary>
+        HollowDotCircle,
+
         /// <summary>感叹号（用于“绑定属性错误”提示符号，不在图上绘制）</summary>
         Exclamation
     }
 
     /// <summary>
     /// 简单点符号。Color 为填充色，OutlineColor/OutlineWidth 为边框颜色与宽度（毫米）。
+    /// 形状除圆/方/三角/十字外，还提供三种常用的“城市点位”符号：
+    /// 五角星（首都）、中心实心点+外围空心圈（省会）、中心空心点+外围空心圆（普通城市）。
+    /// 后两种用 Color（优先）或 OutlineColor 单色绘制，外圈直径等于 Size、中心点直径约为 Size 的三分之一。
     /// </summary>
     public class SimpleMarkerSymbol : Symbol
     {
