@@ -1,0 +1,49 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS.Display.Demo", "GIS_Demo\GIS.Display.Demo\GIS.Display.Demo.csproj", "{FDE62DDC-B2A3-437F-ABC2-7C2274E82324}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS.Display", "GIS_Demo\GIS.Display\GIS.Display.csproj", "{22F3DED4-2791-4CCD-BCD7-225F68BF9F86}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS.Display.Checks", "GIS_Demo\GIS.Display.Checks\GIS.Display.Checks.csproj", "{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS", "MapObjects\GIS\GIS.csproj", "{53B5FCF9-BB0E-4194-8485-53F86C94F659}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GISDemo", "MapObjects\GISDemo\GISDemo.csproj", "{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{53B5FCF9-BB0E-4194-8485-53F86C94F659}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{53B5FCF9-BB0E-4194-8485-53F86C94F659}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{53B5FCF9-BB0E-4194-8485-53F86C94F659}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{53B5FCF9-BB0E-4194-8485-53F86C94F659}.Release|Any CPU.Build.0 = Release|Any CPU
+		{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{22F3DED4-2791-4CCD-BCD7-225F68BF9F86}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{22F3DED4-2791-4CCD-BCD7-225F68BF9F86}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{22F3DED4-2791-4CCD-BCD7-225F68BF9F86}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{22F3DED4-2791-4CCD-BCD7-225F68BF9F86}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FDE62DDC-B2A3-437F-ABC2-7C2274E82324}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FDE62DDC-B2A3-437F-ABC2-7C2274E82324}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FDE62DDC-B2A3-437F-ABC2-7C2274E82324}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FDE62DDC-B2A3-437F-ABC2-7C2274E82324}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D}
+	EndGlobalSection
+EndGlobal
