@@ -31,6 +31,12 @@ namespace GIS
         private const string Header = "GISRENDERER/1";
         private const string SymbolMarker = "[符号]";
 
+        /// <summary>
+        /// 默认符号块的标记，写在所有分类符号之后（只有唯一值/分级渲染才可能有默认符号）。
+        /// 旧版文件没有这一段，读取时按“没有默认符号”处理，因此格式保持向前兼容。
+        /// </summary>
+        private const string DefaultSymbolMarker = "[默认符号]";
+
         #region 扩展名与文件对话框筛选器
 
         /// <summary>取几何类型对应的文件扩展名。</summary>
@@ -131,6 +137,15 @@ namespace GIS
                 lines.Add(SymbolMarker);
                 SimpleRenderer simpleRenderer = renderer as SimpleRenderer;
                 WriteSymbol(lines, simpleRenderer == null ? null : simpleRenderer.Symbol, geometryType);
+            }
+
+            // 默认符号（唯一值/分级渲染）：单独一个块，接在所有分类符号之后。
+            // 不写这一行时表示“没有默认符号”，与旧版文件一致。
+            Symbol defaultSymbol = unique != null ? unique.DefaultSymbol : (breaks != null ? breaks.DefaultSymbol : null);
+            if (defaultSymbol != null)
+            {
+                lines.Add(DefaultSymbolMarker);
+                WriteSymbol(lines, defaultSymbol, geometryType);
             }
             return lines.ToArray();
         }
@@ -236,12 +251,15 @@ namespace GIS
             string field = "";
             int expected = 0;
             var blocks = new List<List<string>>();
+            var defaultBlock = new List<string>();
             List<string> current = null;
 
             for (int i = 1; i < lines.Length; i++)
             {
                 string line = lines[i].Trim();
                 if (line.Length == 0) continue;
+                // 默认符号块（唯一值/分级）单独收集，不计入分类符号个数
+                if (line == DefaultSymbolMarker) { current = defaultBlock; continue; }
                 if (line == SymbolMarker) { current = new List<string>(); blocks.Add(current); continue; }
                 if (current == null)
                 {
@@ -272,10 +290,12 @@ namespace GIS
                     GeometryName(target.GeometryType) + "）不一致。");
 
             Renderer renderer;
+            Symbol defaultSymbol = defaultBlock.Count > 0 ? ReadSymbol(defaultBlock, fileGeometry) : null;
             if (rendererType == "唯一值")
             {
                 var unique = new UniqueValueRenderer();
                 unique.Field = field;
+                unique.DefaultSymbol = defaultSymbol;
                 foreach (List<string> block in blocks)
                 {
                     string value = ValueOf(block, "值", "");
@@ -287,6 +307,7 @@ namespace GIS
             {
                 var breaks = new ClassBreaksRenderer();
                 breaks.Field = field;
+                breaks.DefaultSymbol = defaultSymbol;
                 foreach (List<string> block in blocks)
                 {
                     double upper;

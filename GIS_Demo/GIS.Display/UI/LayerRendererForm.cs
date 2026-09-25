@@ -158,6 +158,7 @@ namespace GIS.Display.UI
                 {
                     unique = ur;
                     SelectField(uniqueField, ur.Field);
+                    EnsureDefaultSymbols();
                     tabs.SelectedIndex = 1;
                     ShowUnique();
                 }
@@ -165,6 +166,7 @@ namespace GIS.Display.UI
                 {
                     classBreaks = cr;
                     SelectField(classField, cr.Field);
+                    EnsureDefaultSymbols();
                     if (classBreaks.BreakCount >= 2 && classBreaks.BreakCount <= 8) classCount.SelectedItem = classBreaks.BreakCount;
                     tabs.SelectedIndex = 2;
                     ShowClass();
@@ -195,6 +197,18 @@ namespace GIS.Display.UI
             return layer.Symbol != null ? layer.Symbol.Clone() : SymbolUI.DefaultFor(layer.FeatureClass.GeometryType);
         }
 
+        /// <summary>
+        /// 保证唯一值/分级渲染器都有一个可用的默认符号。
+        /// 旧版渲染符号文件、或处于“绑定属性错误”状态的渲染器可能没有默认符号（为 null），
+        /// 此时默认符号预览是空白、双击无法设置，点“生成/加载所有值”还会因为克隆 null 而抛
+        /// NullReferenceException。这里统一补一个基于图层当前符号的默认符号。
+        /// </summary>
+        private void EnsureDefaultSymbols()
+        {
+            if (unique.DefaultSymbol == null) unique.DefaultSymbol = BaseSymbol();
+            if (classBreaks.DefaultSymbol == null) classBreaks.DefaultSymbol = BaseSymbol();
+        }
+
         // 从缓存的原渲染（backup）恢复三个工作渲染器，并刷新界面。
         private void ResetFromLayer()
         {
@@ -207,6 +221,7 @@ namespace GIS.Display.UI
             else unique.DefaultSymbol = BaseSymbol();
             if (backup is ClassBreaksRenderer cr) classBreaks = (ClassBreaksRenderer)cr.Clone();
             else classBreaks.DefaultSymbol = BaseSymbol();
+            EnsureDefaultSymbols();
             // 还原图层的实际渲染（撤销之前的“应用”），并刷新地图与图层面板
             layer.Renderer = backup == null ? null : backup.Clone();
             LoadSimple();
@@ -249,7 +264,7 @@ namespace GIS.Display.UI
             defRow.Controls.Add(new Label { Text = "默认符号", AutoSize = true, Padding = new Padding(0, 4, 6, 0) });
             defRow.Controls.Add(uniqueDefault);
             uniqueDefault.Paint += (s, e) => BasicGeometryDrawer.DrawSymbol(e.Graphics, unique.DefaultSymbol, uniqueDefault.ClientRectangle);
-            uniqueDefault.DoubleClick += (s, e) => { var r = SymbolUI.EditSymbol(this, unique.DefaultSymbol); if (r != null) { unique.DefaultSymbol = r; uniqueDefault.Invalidate(); } };
+            uniqueDefault.DoubleClick += (s, e) => EditDefaultSymbol(() => unique.DefaultSymbol, v => unique.DefaultSymbol = v, uniqueDefault);
 
             page.Controls.Add(uniqueList);
             page.Controls.Add(defRow);
@@ -297,7 +312,7 @@ namespace GIS.Display.UI
             defRow.Controls.Add(new Label { Text = "默认符号", AutoSize = true, Padding = new Padding(0, 4, 6, 0) });
             defRow.Controls.Add(classDefault);
             classDefault.Paint += (s, e) => BasicGeometryDrawer.DrawSymbol(e.Graphics, classBreaks.DefaultSymbol, classDefault.ClientRectangle);
-            classDefault.DoubleClick += (s, e) => { var r = SymbolUI.EditSymbol(this, classBreaks.DefaultSymbol); if (r != null) { classBreaks.DefaultSymbol = r; classDefault.Invalidate(); } };
+            classDefault.DoubleClick += (s, e) => EditDefaultSymbol(() => classBreaks.DefaultSymbol, v => classBreaks.DefaultSymbol = v, classDefault);
 
             page.Controls.Add(classList);
             page.Controls.Add(defRow);
@@ -431,6 +446,21 @@ namespace GIS.Display.UI
             }
         }
 
+        /// <summary>
+        /// 编辑“默认符号”。即使当前默认符号为空（旧文件读入或绑定属性错误后），
+        /// 也先用图层符号兜底打开编辑器，保证默认符号始终可以设置。
+        /// </summary>
+        private void EditDefaultSymbol(Func<Symbol> get, Action<Symbol> set, Panel panel)
+        {
+            Symbol current = get() ?? BaseSymbol();
+            var edited = SymbolUI.EditSymbol(this, current);
+            if (edited != null)
+            {
+                set(edited);
+                panel.Invalidate();
+            }
+        }
+
         private void LoadUniqueValues()
         {
             if (uniqueField.SelectedIndex < 0) return;
@@ -445,10 +475,10 @@ namespace GIS.Display.UI
             unique.ClearValues();
             unique.ClearBindingError();   // 重新绑定字段后恢复为可见符号
             unique.Field = field;
-            // 基于默认符号克隆，仅改变颜色
+            // 基于默认符号克隆，仅改变颜色（默认符号可能为空：用一个基于图层符号的副本兜底）
             for (int i = 0; i < values.Count; i++)
             {
-                Symbol s = CloneSymbol(unique.DefaultSymbol);
+                Symbol s = CloneSymbol(unique.DefaultSymbol) ?? BaseSymbol();
                 s.Label = values[i];
                 SetSymbolColor(s, Palette[i % Palette.Length]);
                 unique.AddValue(values[i], s);
@@ -461,7 +491,7 @@ namespace GIS.Display.UI
             if (uniqueField.SelectedIndex < 0) return;
             unique.Field = uniqueField.SelectedItem.ToString();
             string value = "新值" + (unique.ValueCount + 1);
-            Symbol s = CloneSymbol(unique.DefaultSymbol);
+            Symbol s = CloneSymbol(unique.DefaultSymbol) ?? BaseSymbol();
             s.Label = value;
             SetSymbolColor(s, Palette[unique.ValueCount % Palette.Length]);
             unique.AddValue(value, s);
@@ -487,10 +517,10 @@ namespace GIS.Display.UI
             classBreaks.ClearBreakValues();
             classBreaks.ClearBindingError();   // 重新绑定字段后恢复为可见符号
             classBreaks.Field = field;
-            // 基于默认符号克隆，仅改变颜色
+            // 基于默认符号克隆，仅改变颜色（默认符号可能为空：用一个基于图层符号的副本兜底）
             for (int i = 0; i < breaks.Length; i++)
             {
-                Symbol s = CloneSymbol(classBreaks.DefaultSymbol);
+                Symbol s = CloneSymbol(classBreaks.DefaultSymbol) ?? BaseSymbol();
                 s.Label = i == 0 ? "< " + Fmt(breaks[i]) : Fmt(breaks[i - 1]) + " - " + Fmt(breaks[i]);
                 classBreaks.AddBreakValue(breaks[i], s);
             }
@@ -718,13 +748,18 @@ namespace GIS.Display.UI
             return simple.Clone();
         }
 
+        /// <summary>创建渲染设置窗口（对话框与自动检查共用同一套布局与初始化逻辑）。</summary>
+        public static LayerRendererForm Create(Layer layer, Action onApplied = null)
+        {
+            var form = new LayerRendererForm(layer);
+            if (onApplied != null) form.RendererApplied += onApplied;
+            return form;
+        }
+
         public static bool Edit(IWin32Window owner, Layer layer, Action onApplied = null)
         {
-            using (var f = new LayerRendererForm(layer))
-            {
-                if (onApplied != null) f.RendererApplied += onApplied;
+            using (var f = Create(layer, onApplied))
                 return f.ShowDialog(owner) == DialogResult.OK;
-            }
         }
     }
 }

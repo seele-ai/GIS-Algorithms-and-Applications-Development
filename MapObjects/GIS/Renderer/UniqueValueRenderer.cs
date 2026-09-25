@@ -96,7 +96,9 @@ namespace GIS
 
         public override Symbol GetSymbolFor(Feature feature)
         {
-            if (_Values.Count == 0) return null;   // 未配置唯一值时回退到图层基础符号，避免默认符号影响整层
+            // 未配置唯一值时回退到图层基础符号；但若正处于“绑定属性错误”状态，必须返回不可见符号，
+            // 否则要素会被回落到图层基础符号而“误画”出来。
+            if (_Values.Count == 0) return HasBindingError ? EmptyBindingErrorSymbol() : null;
             if (feature == null || feature.Attributes == null) return ErrorOrDefault();
             object obj = feature.Attributes.GetItem(_Field);
             if (obj == null) return ErrorOrDefault();

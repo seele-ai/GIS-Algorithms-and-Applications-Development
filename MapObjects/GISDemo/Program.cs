@@ -856,6 +856,55 @@ namespace GISDemo
             Check("旧版线符号文件仍可读取（特性缺省关闭）",
                 !sLegacyEl.OffsetEnabled && !sLegacyEl.ExtendEnabled && !sLegacyEl.ArcEnabled
                 && AlmostEqual(sLegacyEl.Length, 5, 1e-9));
+
+            // 默认符号（唯一值/分级渲染中“未匹配值”使用的符号）也要能存取：
+            // 曾经完全没有写入文件，导致读回后默认符号为 null，渲染设置里既看不到也设不了，
+            // 点“生成/加载所有值”还会因为克隆 null 而抛 NullReferenceException。
+            ClassBreaksRenderer sWithDefault = new ClassBreaksRenderer();
+            sWithDefault.Field = "数值";
+            sWithDefault.DefaultSymbol = new SimpleMarkerSymbol { Color = System.Drawing.Color.Gray, Size = 2.5 };
+            sWithDefault.AddBreakValue(10, new SimpleMarkerSymbol { Color = System.Drawing.Color.Red });
+            string[] sDefaultLines = RendererFile.ToLines(sWithDefault, GeometryTypeConstant.Point);
+            Check("渲染符号文件写出默认符号块", Array.IndexOf(sDefaultLines, "[默认符号]") > 0);
+            var sDefaultBack = RendererFile.Parse(sDefaultLines, RendererFile.PointExtension, null) as ClassBreaksRenderer;
+            Check("渲染符号文件往返后分级默认符号一致",
+                sDefaultBack.DefaultSymbol is SimpleMarkerSymbol
+                && AlmostEqual(((SimpleMarkerSymbol)sDefaultBack.DefaultSymbol).Size, 2.5, 1e-9)
+                && ((SimpleMarkerSymbol)sDefaultBack.DefaultSymbol).Color.ToArgb() == System.Drawing.Color.Gray.ToArgb()
+                && sDefaultBack.BreakCount == 1);
+
+            UniqueValueRenderer sUniqueDefault = new UniqueValueRenderer();
+            sUniqueDefault.Field = "类型";
+            sUniqueDefault.DefaultSymbol = new SimpleFillSymbol { Color = System.Drawing.Color.Silver };
+            sUniqueDefault.AddValue("学校", new SimpleFillSymbol { Color = System.Drawing.Color.Blue });
+            var sUniqueBack = RendererFile.Parse(
+                RendererFile.ToLines(sUniqueDefault, GeometryTypeConstant.Polygon), RendererFile.PolygonExtension, null);
+            Check("唯一值渲染的默认符号也能往返",
+                ((UniqueValueRenderer)sUniqueBack).DefaultSymbol is SimpleFillSymbol
+                && ((SimpleFillSymbol)((UniqueValueRenderer)sUniqueBack).DefaultSymbol).Color.ToArgb()
+                   == System.Drawing.Color.Silver.ToArgb());
+
+            // 旧版文件没有默认符号块：读入后默认符号为“无”，但不能影响分类符号
+            var sNoDefault = RendererFile.Parse(new[]
+            {
+                "GISRENDERER/1", "几何类型=点", "渲染类型=分级", "绑定字段=数值", "分级数=1", "[符号]",
+                "分级上限=10", "形状=圆形", "大小=3", "颜色=255,0,0,255", "边框颜色=0,0,0,0", "边框宽度=0.3"
+            }, RendererFile.PointExtension, null) as ClassBreaksRenderer;
+            Check("旧版渲染符号文件（无默认符号块）仍可读取",
+                sNoDefault.BreakCount == 1 && sNoDefault.DefaultSymbol == null);
+
+            // 绑定属性错误且一个分级/唯一值符号都没有时，也必须返回不可见符号：
+            // 返回 null 会让绘制层回落到图层基础符号，把要素“误画”出来。
+            var sEmptyBreaks = new ClassBreaksRenderer();
+            sEmptyBreaks.Field = "高程";
+            sEmptyBreaks.SetBindingError("高程");
+            Check("绑定错误且无分级符号时返回不可见符号（不回落为图层符号）",
+                sEmptyBreaks.GetSymbolFor(null) != null && !sEmptyBreaks.GetSymbolFor(null).Visible);
+            var sEmptyUnique = new UniqueValueRenderer();
+            sEmptyUnique.Field = "高程";
+            sEmptyUnique.SetBindingError("高程");
+            Check("绑定错误且无唯一值符号时同样返回不可见符号",
+                sEmptyUnique.GetSymbolFor(null) != null && !sEmptyUnique.GetSymbolFor(null).Visible);
         }
 
         private static bool IsParseOk(string[] lines, string extension, FeatureClass target)

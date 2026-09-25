@@ -683,6 +683,91 @@ internal static class Program
             Check(!stillRed, "重新绑定字段后图层名恢复为常规颜色");
         }
 
+        // 4b) 回归：分段渲染处于“绑定属性错误 / 没有默认符号”时，重新生成符号不得报错，且默认符号要能继续设置
+        //     现象：符号为 error 后，在渲染设置里点“生成 / 加载所有值”抛 NullReferenceException，
+        //     默认符号为空、双击也设不了。根因是渲染符号文件不保存默认符号，且界面按“非空”使用它。
+        var breakFc = new FeatureClass("分级图层", GeometryTypeConstant.Point);
+        breakFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+        breakFc.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+        for (int i = 0; i < 3; i++)
+        {
+            var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), breakFc.Fields);
+            f.Attributes.SetItem("名称", "点" + (i + 1));
+            f.Attributes.SetItem("数值", (i + 1) * 10.0);
+            breakFc.Add(f);
+        }
+        var breakLayer = new Layer("分级图层", breakFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+        var legacyRenderer = new ClassBreaksRenderer();
+        legacyRenderer.Field = "高程";   // 图层里没有该字段 → 读入后进入“绑定属性错误”
+        legacyRenderer.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+        breakLayer.Renderer = RendererFile.Parse(
+            RendererFile.ToLines(legacyRenderer, GeometryTypeConstant.Point), RendererFile.PointExtension, breakFc);
+        Check(breakLayer.Renderer.HasBindingError
+            && ((ClassBreaksRenderer)breakLayer.Renderer).DefaultSymbol == null,
+            "旧版文件读入的分级渲染器：既没有默认符号，又处于绑定属性错误状态");
+        using (var rendererForm = LayerRendererForm.Create(breakLayer))
+        {
+            rendererForm.ShowInTaskbar = false;
+            rendererForm.Opacity = 0;
+            rendererForm.Show();
+            Application.DoEvents();
+            var tabs = FindControl<TabControl>(rendererForm);
+            Button find(Control root, string text)
+            {
+                foreach (Button b in AllButtons(root)) if (b.Text == text) return b;
+                return null;
+            }
+            tabs.SelectedIndex = 2;   // 分级渲染选项卡
+            Button gen = find(rendererForm, "生成");
+            Check(gen != null, "分级渲染选项卡提供“生成”按钮");
+            gen.PerformClick();       // 修复前这里抛 NullReferenceException（克隆空默认符号）
+            Button apply = find(rendererForm, "应用");
+            apply.PerformClick();
+            var applied = breakLayer.Renderer as ClassBreaksRenderer;
+            Check(applied != null && applied.BreakCount > 0 && !applied.HasBindingError,
+                "绑定错误状态下重新“生成”不再报错，分级符号建立且错误状态被清除");
+            Check(applied != null && applied.DefaultSymbol != null,
+                "重新生成后默认符号不再为空（可以继续设置）");
+            rendererForm.Hide();
+        }
+
+        // 4c) 回归：唯一值渲染的默认符号为空时（旧版文件读入的情形），“加载所有值”同样不得报错
+        var uniqueFc = new FeatureClass("唯一值图层", GeometryTypeConstant.Point);
+        uniqueFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+        for (int i = 0; i < 3; i++)
+        {
+            var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), uniqueFc.Fields);
+            f.Attributes.SetItem("名称", "点" + (i + 1));
+            uniqueFc.Add(f);
+        }
+        var uniqueLayer = new Layer("唯一值图层", uniqueFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+        var uniqueSeed = new UniqueValueRenderer();
+        uniqueSeed.Field = "名称";
+        uniqueSeed.AddValue("点1", new SimpleMarkerSymbol { Color = Color.Red });
+        uniqueLayer.Renderer = uniqueSeed;   // DefaultSymbol 为 null，相当于旧版文件读入
+        Check(((UniqueValueRenderer)uniqueLayer.Renderer).DefaultSymbol == null,
+            "唯一值渲染器可以没有默认符号（旧版文件读入的情形）");
+        using (var uniqueForm = LayerRendererForm.Create(uniqueLayer))
+        {
+            uniqueForm.ShowInTaskbar = false;
+            uniqueForm.Opacity = 0;
+            uniqueForm.Show();
+            Application.DoEvents();
+            FindControl<TabControl>(uniqueForm).SelectedIndex = 1;   // 唯一值渲染选项卡
+            Button load = null, apply2 = null;
+            foreach (Button b in AllButtons(uniqueForm))
+            {
+                if (b.Text == "加载所有值") load = b;
+                if (b.Text == "应用") apply2 = b;
+            }
+            load.PerformClick();       // 修复前这里抛 NullReferenceException
+            apply2.PerformClick();
+            var appliedUnique = uniqueLayer.Renderer as UniqueValueRenderer;
+            Check(appliedUnique != null && appliedUnique.ValueCount == 3 && appliedUnique.DefaultSymbol != null,
+                "默认符号为空时也能“加载所有值”，并补上可编辑的默认符号");
+            uniqueForm.Hide();
+        }
+
         // 5) 坐标系统一：非 WGS84 图层在面板中以橙色标注坐标系，转换到 WGS84 后恢复
         using (var map = new MapControl { Size = new Size(400, 300) })
         using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
