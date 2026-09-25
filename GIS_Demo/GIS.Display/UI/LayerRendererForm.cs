@@ -423,10 +423,12 @@ namespace GIS.Display.UI
             for (int i = 0; i < count; i++)
             {
                 int index = i;
+                bool canEdit = LayerControl.CanEditSymbolDirectly(renderer);
                 var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Height = 28 };
-                var sym = new Panel { Size = new Size(64, 26), BackColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Cursor = Cursors.Hand, Margin = new Padding(4, 1, 8, 0) };
+                var sym = new Panel { Size = new Size(64, 26), BackColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Cursor = canEdit ? Cursors.Hand : Cursors.Default, Margin = new Padding(4, 1, 8, 0) };
                 sym.Paint += (s, e) => { Symbol s2 = getSymbol(index); if (s2 != null) BasicGeometryDrawer.DrawSymbol(e.Graphics, s2, sym.ClientRectangle); };
-                sym.Click += (s, e) => EditSymbol(renderer, index, getSymbol, getLabel, panel, count);
+                // 绑定属性错误时符号不可单独设置（画的是红色感叹号提示符号），重新绑定字段并生成后即可编辑
+                if (canEdit) sym.Click += (s, e) => EditSymbol(renderer, index, getSymbol, getLabel, panel, count);
                 var lbl = new Label { Text = getLabel(index), AutoSize = true, Margin = new Padding(0, 5, 0, 0) };
                 row.Controls.Add(sym);
                 row.Controls.Add(lbl);
@@ -437,6 +439,7 @@ namespace GIS.Display.UI
 
         private void EditSymbol(Renderer renderer, int index, Func<int, Symbol> getSymbol, Func<int, string> getLabel, Panel panel, int count)
         {
+            if (!LayerControl.CanEditSymbolDirectly(renderer)) return;   // 绑定属性错误时不允许单独设置符号
             var edited = SymbolUI.EditSymbol(this, getSymbol(index));
             if (edited != null)
             {

@@ -829,6 +829,67 @@ internal static class Program
             }
         }
 
+        // 4e) 回归：绑定属性错误时，图例里的错误符号不能再点开单独设置
+        //     （此前点它会用“感叹号”形状去打开点符号编辑器，形状下拉框越界报错）
+        {
+            var errFc = new FeatureClass("错误图层", GeometryTypeConstant.Point);
+            errFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+            errFc.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+            var errFeature = new Feature(new GIS.Point(new Coordinate(10, 10)), errFc.Fields);
+            errFeature.Attributes.SetItem("名称", "点1");
+            errFeature.Attributes.SetItem("数值", 5.0);
+            errFc.Add(errFeature);
+            var errLayer = new Layer("错误图层", errFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+            var errSeed = new ClassBreaksRenderer();
+            errSeed.Field = "高程";
+            errSeed.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+            errLayer.Renderer = RendererFile.Parse(RendererFile.ToLines(errSeed, GeometryTypeConstant.Point),
+                RendererFile.PointExtension, errFc);
+            Check(errLayer.Renderer.HasBindingError && !LayerControl.CanEditSymbolDirectly(errLayer.Renderer),
+                "绑定属性错误时图例符号不可直接点击设置");
+            Check(LayerControl.CanEditSymbolDirectly(new SimpleRenderer { Symbol = new SimpleMarkerSymbol() }),
+                "正常渲染时图例符号仍可点击单独设置");
+
+            // 点符号编辑器本身也要能容错打开“红色感叹号”错误符号（形状下拉框只有四种形状）
+            using (var markerEditor = MarkerSymbolEditor.Create(Renderer.BindingErrorSymbol()))
+            {
+                markerEditor.ShowInTaskbar = false;
+                markerEditor.Opacity = 0;
+                markerEditor.Show();
+                Application.DoEvents();
+                var styleCombo = FindControl<ComboBox>(markerEditor);
+                Check(styleCombo.SelectedIndex >= 0 && styleCombo.SelectedIndex < styleCombo.Items.Count,
+                    "点符号编辑器打开“红色感叹号”符号不再越界（形状下拉框钳到合法项）");
+                markerEditor.Hide();
+            }
+
+            using (var map = new MapControl { Size = new Size(400, 300) })
+            using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
+            {
+                var handle = map.Handle;
+                manager.Bind(map);
+                map.AddLayer(errLayer);
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                int legendPanels = 0, clickable = 0, withMenu = 0;
+                bool editItem = false;
+                foreach (Control c in AllControls(manager.LayerRows[0]))
+                {
+                    if (!(c is Panel p) || p.Width != 60 || p.Height != 24) continue;   // 图例里的符号预览面板
+                    legendPanels++;
+                    if (p.Cursor == Cursors.Hand) clickable++;
+                    if (p.ContextMenuStrip == null) continue;
+                    withMenu++;
+                    foreach (ToolStripItem item in p.ContextMenuStrip.Items)
+                        if (item.Text != null && item.Text.Contains("修改")) editItem = true;
+                }
+                Check(legendPanels > 0 && clickable == 0, "错误符号不再显示为可点击（手型光标已取消）");
+                Check(withMenu == legendPanels, "错误符号行仍挂着右键菜单，可进入渲染设置");
+                Check(editItem, "右键菜单里有“修改图层符号/渲染”入口");
+            }
+        }
+
         // 5) 坐标系统一：非 WGS84 图层在面板中以橙色标注坐标系，转换到 WGS84 后恢复
         using (var map = new MapControl { Size = new Size(400, 300) })
         using (var manager = new LayerManagerControl { Size = new Size(240, 400) })

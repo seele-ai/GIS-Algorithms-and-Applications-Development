@@ -28,7 +28,11 @@ namespace GIS.Display.UI
             Padding = new Padding(12);
 
             styleBox.Items.AddRange(new object[] { "圆形", "方形", "三角形", "十字" });
-            styleBox.SelectedIndex = (int)symbol.Style;
+            // 绑定属性错误的提示符号用的是“感叹号”形状，不在上面四种可编辑形状里；
+            // 直接按枚举值选中会越界（此前点击错误符号就报 ArgumentOutOfRangeException），这里钳到合法下标。
+            // 只影响下拉框显示，不修改符号本身的形状（重新绑定字段生成后该符号会被整体替换）。
+            int styleIndex = (int)symbol.Style;
+            styleBox.SelectedIndex = styleIndex >= 0 && styleIndex < styleBox.Items.Count ? styleIndex : 0;
             styleBox.SelectedIndexChanged += (s, e) => { symbol.Style = (SimpleMarkerSymbolStyleConstant)styleBox.SelectedIndex; RefreshPreview(); };
 
             var fillBtn = ColorButton(symbol.Color, "填充颜色", c => { symbol.Color = c; RefreshPreview(); });
@@ -77,10 +81,13 @@ namespace GIS.Display.UI
         private static Button ColorButton(Color color, string text, Action<Color> onPick)
             => SymbolUI.ColorButton(color, text, 250, onPick);
 
+        /// <summary>创建点符号编辑窗口（对话框与自动检查共用同一套初始化逻辑）。</summary>
+        public static MarkerSymbolEditor Create(SimpleMarkerSymbol source) => new MarkerSymbolEditor(source);
+
         /// <summary>返回编辑后的符号；取消返回 null。</summary>
         public static SimpleMarkerSymbol Edit(IWin32Window owner, SimpleMarkerSymbol source)
         {
-            using (var f = new MarkerSymbolEditor(source))
+            using (var f = Create(source))
                 return f.ShowDialog(owner) == DialogResult.OK ? f.symbol : null;
         }
     }

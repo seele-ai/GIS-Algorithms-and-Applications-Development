@@ -19,6 +19,7 @@ namespace GIS.Display
         private readonly Button upBtn = new Button { Text = "↑", Size = new Size(22, 14) };
         private readonly Button downBtn = new Button { Text = "↓", Size = new Size(22, 14) };
         private readonly ContextMenuStrip menu = new ContextMenuStrip();
+        private static readonly ToolTip LegendHint = new ToolTip();   // 绑定属性错误符号的提示
         private readonly ToolStripMenuItem mniLabelToggle = new ToolStripMenuItem();
         private readonly ToolStripMenuItem mniSelectableToggle = new ToolStripMenuItem();
         private Panel symbolArea;
@@ -229,6 +230,17 @@ namespace GIS.Display
             return 36;
         }
 
+        /// <summary>
+        /// 图例里的符号能否直接点开单独设置。处于“绑定属性错误”状态时不行：
+        /// 此时画的是专用的红色感叹号符号（形状不在点符号编辑器的四种形状里），
+        /// 单独设置它也没有意义（重新绑定字段生成后会被整体替换）。
+        /// 这时只能右键图层 →“修改图层符号/渲染”，在渲染设置里重新绑定字段。
+        /// </summary>
+        public static bool CanEditSymbolDirectly(Renderer renderer)
+        {
+            return renderer == null || !renderer.HasBindingError;
+        }
+
         // 唯一值/分级渲染：标题 + 符号/属性列表（不用 DataGridView，避免 COM 可见性 MDA），点击符号可单独设置。
         // 行 Margin 必须为 0，否则 FlowLayoutPanel 的默认外边距会把末行挤出计算高度、导致最后一行无法显示。
         private int AttachLegend(string title, int count, Func<int, Symbol> getSymbol, Func<int, string> getLabel,
@@ -240,6 +252,7 @@ namespace GIS.Display
             int rowCount = count + (extraSymbol != null ? 1 : 0);
             int fullHeight = headerHeight + rowCount * rowH + 20;   // 底部留余量，保证最后一行可完整滚到
             int maxHeight = headerHeight + 4 * rowH;                 // 高度阈值：最多显示 4 个符号行
+            bool canEdit = CanEditSymbolDirectly(renderer);
             var list = new FlowLayoutPanel
             {
                 Location = new ScreenPoint(0, 0),
@@ -277,17 +290,25 @@ namespace GIS.Display
                     Size = new Size(60, 24),
                     BackColor = Color.White,
                     BorderStyle = BorderStyle.FixedSingle,
-                    Cursor = Cursors.Hand,
+                    Cursor = canEdit ? Cursors.Hand : Cursors.Default,
                     Margin = new Padding(4, 1, 8, 0)
                 };
                 sym.Paint += (s, e) => {
                     Symbol s2 = isExtra ? extraSymbol : getSymbol(index);
                     if (s2 != null) BasicGeometryDrawer.DrawSymbol(e.Graphics, s2, sym.ClientRectangle);
                 };
-                sym.Click += (s, e) => {
-                    if (isExtra) EditDefaultSymbol(renderer);
-                    else EditLegendSymbol(renderer, index, getSymbol);
-                };
+                if (canEdit)
+                {
+                    sym.Click += (s, e) => {
+                        if (isExtra) EditDefaultSymbol(renderer);
+                        else EditLegendSymbol(renderer, index, getSymbol);
+                    };
+                }
+                else
+                {
+                    // 绑定属性错误：不响应单击，改为提示从右键菜单进入渲染设置
+                    LegendHint.SetToolTip(sym, "绑定属性错误：符号不可单独设置。\r\n请右键图层，选“修改图层符号/渲染”，重新绑定字段后生成。");
+                }
                 sym.ContextMenuStrip = menu;
                 var lbl = new Label { Text = isExtra ? extraLabel : getLabel(index), AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
                 if (bindingError && !isExtra)
@@ -297,6 +318,8 @@ namespace GIS.Display
                     lbl.ForeColor = Color.Red;
                     lbl.MaximumSize = new Size(130, 0);
                 }
+                lbl.ContextMenuStrip = menu;    // 右键整行都能打开图层菜单（含“修改图层符号/渲染”）
+                row.ContextMenuStrip = menu;
                 row.Controls.Add(sym);
                 row.Controls.Add(lbl);
                 list.Controls.Add(row);
@@ -308,6 +331,7 @@ namespace GIS.Display
 
         private void EditLegendSymbol(Renderer renderer, int index, Func<int, Symbol> getSymbol)
         {
+            if (!CanEditSymbolDirectly(renderer)) return;   // 绑定属性错误：只能从右键菜单进渲染设置
             var edited = GIS.Display.UI.SymbolUI.EditSymbol(this, getSymbol(index));
             if (edited != null)
             {
@@ -321,6 +345,7 @@ namespace GIS.Display
         // 编辑唯一值渲染的默认符号（图例末行“（其他值）”）
         private void EditDefaultSymbol(Renderer renderer)
         {
+            if (!CanEditSymbolDirectly(renderer)) return;
             var unique = renderer as UniqueValueRenderer;
             if (unique == null || unique.DefaultSymbol == null) return;
             var edited = GIS.Display.UI.SymbolUI.EditSymbol(this, unique.DefaultSymbol);
