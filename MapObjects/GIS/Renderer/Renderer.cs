@@ -96,6 +96,18 @@ namespace GIS
             };
         }
 
+        private Symbol _EmptyBindingErrorSymbol;
+
+        /// <summary>
+        /// 符号列表为空、但已处于“绑定属性错误”状态时使用的不可见符号。
+        /// 此时若返回 null，绘制层会回落到图层基础符号，把要素“误画”出来，因此必须给一个不可见符号。
+        /// </summary>
+        protected Symbol EmptyBindingErrorSymbol()
+        {
+            if (_EmptyBindingErrorSymbol == null) _EmptyBindingErrorSymbol = BindingErrorSymbol();
+            return _EmptyBindingErrorSymbol;
+        }
+
         /// <summary>
         /// 获取指定要素应使用的符号（无法匹配时返回默认符号）
         /// </summary>

@@ -683,6 +683,213 @@ internal static class Program
             Check(!stillRed, "重新绑定字段后图层名恢复为常规颜色");
         }
 
+        // 4b) 回归：分段渲染处于“绑定属性错误 / 没有默认符号”时，重新生成符号不得报错，且默认符号要能继续设置
+        //     现象：符号为 error 后，在渲染设置里点“生成 / 加载所有值”抛 NullReferenceException，
+        //     默认符号为空、双击也设不了。根因是渲染符号文件不保存默认符号，且界面按“非空”使用它。
+        var breakFc = new FeatureClass("分级图层", GeometryTypeConstant.Point);
+        breakFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+        breakFc.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+        for (int i = 0; i < 3; i++)
+        {
+            var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), breakFc.Fields);
+            f.Attributes.SetItem("名称", "点" + (i + 1));
+            f.Attributes.SetItem("数值", (i + 1) * 10.0);
+            breakFc.Add(f);
+        }
+        var breakLayer = new Layer("分级图层", breakFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+        var legacyRenderer = new ClassBreaksRenderer();
+        legacyRenderer.Field = "高程";   // 图层里没有该字段 → 读入后进入“绑定属性错误”
+        legacyRenderer.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+        breakLayer.Renderer = RendererFile.Parse(
+            RendererFile.ToLines(legacyRenderer, GeometryTypeConstant.Point), RendererFile.PointExtension, breakFc);
+        Check(breakLayer.Renderer.HasBindingError
+            && ((ClassBreaksRenderer)breakLayer.Renderer).DefaultSymbol == null,
+            "旧版文件读入的分级渲染器：既没有默认符号，又处于绑定属性错误状态");
+        using (var rendererForm = LayerRendererForm.Create(breakLayer))
+        {
+            rendererForm.ShowInTaskbar = false;
+            rendererForm.Opacity = 0;
+            rendererForm.Show();
+            Application.DoEvents();
+            var tabs = FindControl<TabControl>(rendererForm);
+            Button find(Control root, string text)
+            {
+                foreach (Button b in AllButtons(root)) if (b.Text == text) return b;
+                return null;
+            }
+            tabs.SelectedIndex = 2;   // 分级渲染选项卡
+            Button gen = find(rendererForm, "生成");
+            Check(gen != null, "分级渲染选项卡提供“生成”按钮");
+            gen.PerformClick();       // 修复前这里抛 NullReferenceException（克隆空默认符号）
+            Button apply = find(rendererForm, "应用");
+            apply.PerformClick();
+            var applied = breakLayer.Renderer as ClassBreaksRenderer;
+            Check(applied != null && applied.BreakCount > 0 && !applied.HasBindingError,
+                "绑定错误状态下重新“生成”不再报错，分级符号建立且错误状态被清除");
+            Check(applied != null && applied.DefaultSymbol != null,
+                "重新生成后默认符号不再为空（可以继续设置）");
+            rendererForm.Hide();
+        }
+
+        // 4c) 回归：唯一值渲染的默认符号为空时（旧版文件读入的情形），“加载所有值”同样不得报错
+        var uniqueFc = new FeatureClass("唯一值图层", GeometryTypeConstant.Point);
+        uniqueFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+        for (int i = 0; i < 3; i++)
+        {
+            var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), uniqueFc.Fields);
+            f.Attributes.SetItem("名称", "点" + (i + 1));
+            uniqueFc.Add(f);
+        }
+        var uniqueLayer = new Layer("唯一值图层", uniqueFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+        var uniqueSeed = new UniqueValueRenderer();
+        uniqueSeed.Field = "名称";
+        uniqueSeed.AddValue("点1", new SimpleMarkerSymbol { Color = Color.Red });
+        uniqueLayer.Renderer = uniqueSeed;   // DefaultSymbol 为 null，相当于旧版文件读入
+        Check(((UniqueValueRenderer)uniqueLayer.Renderer).DefaultSymbol == null,
+            "唯一值渲染器可以没有默认符号（旧版文件读入的情形）");
+        using (var uniqueForm = LayerRendererForm.Create(uniqueLayer))
+        {
+            uniqueForm.ShowInTaskbar = false;
+            uniqueForm.Opacity = 0;
+            uniqueForm.Show();
+            Application.DoEvents();
+            FindControl<TabControl>(uniqueForm).SelectedIndex = 1;   // 唯一值渲染选项卡
+            Button load = null, apply2 = null;
+            foreach (Button b in AllButtons(uniqueForm))
+            {
+                if (b.Text == "加载所有值") load = b;
+                if (b.Text == "应用") apply2 = b;
+            }
+            load.PerformClick();       // 修复前这里抛 NullReferenceException
+            apply2.PerformClick();
+            var appliedUnique = uniqueLayer.Renderer as UniqueValueRenderer;
+            Check(appliedUnique != null && appliedUnique.ValueCount == 3 && appliedUnique.DefaultSymbol != null,
+                "默认符号为空时也能“加载所有值”，并补上可编辑的默认符号");
+            uniqueForm.Hide();
+        }
+
+        // 4d) 回归：读取已有分级渲染符号后，图层面板下方显示的绑定字段必须能随重新绑定而更新
+        //     （图例标题此前只在为空时跟随字段，读入文件后标题被写成旧字段名，于是看起来“字段固定、改不了”）
+        {
+            var fc2 = new FeatureClass("分级图层2", GeometryTypeConstant.Point);
+            fc2.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+            fc2.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+            for (int i = 0; i < 3; i++)
+            {
+                var f = new Feature(new GIS.Point(new Coordinate(10 + i * 5, 10)), fc2.Fields);
+                f.Attributes.SetItem("名称", "点" + (i + 1));
+                f.Attributes.SetItem("数值", (i + 1) * 10.0);
+                fc2.Add(f);
+            }
+            var layer2 = new Layer("分级图层2", fc2) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+            var seedRenderer = new ClassBreaksRenderer();
+            seedRenderer.Field = "高程";   // 文件里绑定的字段（当前图层中不存在）
+            seedRenderer.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+            layer2.Renderer = RendererFile.Parse(
+                RendererFile.ToLines(seedRenderer, GeometryTypeConstant.Point), RendererFile.PointExtension, null);
+
+            using (var map = new MapControl { Size = new Size(400, 300) })
+            using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
+            {
+                var handle = map.Handle;
+                manager.Bind(map);
+                map.AddLayer(layer2);
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                Check(LegendHasText(manager, "高程"), "读取分级渲染符号后，图层面板显示文件里的绑定字段");
+
+                using (var form = LayerRendererForm.Create(layer2))
+                {
+                    form.ShowInTaskbar = false;
+                    form.Opacity = 0;
+                    form.Show();
+                    Application.DoEvents();
+                    var tabs2 = FindControl<TabControl>(form);
+                    tabs2.SelectedIndex = 2;                                        // 分级渲染选项卡
+                    var fieldCombo = FindControl<ComboBox>(tabs2.TabPages[2]);      // 该选项卡里的“字段”下拉框
+                    fieldCombo.SelectedItem = "数值";
+                    Button gen2 = null, apply3 = null;
+                    foreach (Button b in AllButtons(form))
+                    {
+                        if (b.Text == "生成") gen2 = b;
+                        if (b.Text == "应用") apply3 = b;
+                    }
+                    gen2.PerformClick();
+                    apply3.PerformClick();
+                    form.Hide();
+                }
+                Check(layer2.Renderer is ClassBreaksRenderer && layer2.Renderer.BoundField == "数值",
+                    "重新绑定后渲染器的绑定字段为“数值”");
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                Check(LegendHasText(manager, "数值") && !LegendHasText(manager, "高程"),
+                    "重新绑定字段后图层面板显示的字段同步更新（不再固定为旧字段）");
+            }
+        }
+
+        // 4e) 回归：绑定属性错误时，图例里的错误符号不能再点开单独设置
+        //     （此前点它会用“感叹号”形状去打开点符号编辑器，形状下拉框越界报错）
+        {
+            var errFc = new FeatureClass("错误图层", GeometryTypeConstant.Point);
+            errFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+            errFc.Fields.Add(new Field("数值", FieldTypeConstant.Double));
+            var errFeature = new Feature(new GIS.Point(new Coordinate(10, 10)), errFc.Fields);
+            errFeature.Attributes.SetItem("名称", "点1");
+            errFeature.Attributes.SetItem("数值", 5.0);
+            errFc.Add(errFeature);
+            var errLayer = new Layer("错误图层", errFc) { Symbol = new SimpleMarkerSymbol { Color = Color.Gray } };
+            var errSeed = new ClassBreaksRenderer();
+            errSeed.Field = "高程";
+            errSeed.AddBreakValue(10, new SimpleMarkerSymbol { Color = Color.Red });
+            errLayer.Renderer = RendererFile.Parse(RendererFile.ToLines(errSeed, GeometryTypeConstant.Point),
+                RendererFile.PointExtension, errFc);
+            Check(errLayer.Renderer.HasBindingError && !LayerControl.CanEditSymbolDirectly(errLayer.Renderer),
+                "绑定属性错误时图例符号不可直接点击设置");
+            Check(LayerControl.CanEditSymbolDirectly(new SimpleRenderer { Symbol = new SimpleMarkerSymbol() }),
+                "正常渲染时图例符号仍可点击单独设置");
+
+            // 点符号编辑器本身也要能容错打开“红色感叹号”错误符号（形状下拉框只有四种形状）
+            using (var markerEditor = MarkerSymbolEditor.Create(Renderer.BindingErrorSymbol()))
+            {
+                markerEditor.ShowInTaskbar = false;
+                markerEditor.Opacity = 0;
+                markerEditor.Show();
+                Application.DoEvents();
+                var styleCombo = FindControl<ComboBox>(markerEditor);
+                Check(styleCombo.SelectedIndex >= 0 && styleCombo.SelectedIndex < styleCombo.Items.Count,
+                    "点符号编辑器打开“红色感叹号”符号不再越界（形状下拉框钳到合法项）");
+                markerEditor.Hide();
+            }
+
+            using (var map = new MapControl { Size = new Size(400, 300) })
+            using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
+            {
+                var handle = map.Handle;
+                manager.Bind(map);
+                map.AddLayer(errLayer);
+                map.RefreshMap();
+                Application.DoEvents();
+                foreach (LayerControl row in manager.LayerRows) row.RefreshView();
+                int legendPanels = 0, clickable = 0, withMenu = 0;
+                bool editItem = false;
+                foreach (Control c in AllControls(manager.LayerRows[0]))
+                {
+                    if (!(c is Panel p) || p.Width != 60 || p.Height != 24) continue;   // 图例里的符号预览面板
+                    legendPanels++;
+                    if (p.Cursor == Cursors.Hand) clickable++;
+                    if (p.ContextMenuStrip == null) continue;
+                    withMenu++;
+                    foreach (ToolStripItem item in p.ContextMenuStrip.Items)
+                        if (item.Text != null && item.Text.Contains("修改")) editItem = true;
+                }
+                Check(legendPanels > 0 && clickable == 0, "错误符号不再显示为可点击（手型光标已取消）");
+                Check(withMenu == legendPanels, "错误符号行仍挂着右键菜单，可进入渲染设置");
+                Check(editItem, "右键菜单里有“修改图层符号/渲染”入口");
+            }
+        }
+
         // 5) 坐标系统一：非 WGS84 图层在面板中以橙色标注坐标系，转换到 WGS84 后恢复
         using (var map = new MapControl { Size = new Size(400, 300) })
         using (var manager = new LayerManagerControl { Size = new Size(240, 400) })
@@ -955,5 +1162,14 @@ internal static class Program
             list.AddRange(AllListBoxes(child));
         }
         return list;
+    }
+
+    // 图层面板里是否存在文本完全等于 text 的标签（用于检查图例标题＝绑定字段）
+    private static bool LegendHasText(LayerManagerControl manager, string text)
+    {
+        foreach (LayerControl row in manager.LayerRows)
+            foreach (Label label in AllLabels(row))
+                if (label.Text == text) return true;
+        return false;
     }
 }
