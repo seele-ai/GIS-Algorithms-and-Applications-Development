@@ -48,7 +48,7 @@ namespace GIS.Display
                 if (string.IsNullOrEmpty(text)) continue;
                 Symbol symbol = GetSymbol(layer, feature);
                 SizeF size = MeasureLabel(graphics, text, ts, dpm);
-                PointF[] candidates = LabelCandidates(feature.Geometry, symbol, transform, size);
+                PointF[] candidates = LabelCandidates(feature.Geometry, symbol, transform, size, angle);
                 if (candidates == null || candidates.Length == 0) continue;
 
                 PointF location;
@@ -130,23 +130,26 @@ namespace GIS.Display
             }
         }
 
-        // 注记的候选锚点（左上角）：点要素试四个角，线/面在定位点居中并允许上下微调
-        private static PointF[] LabelCandidates(Geometry geometry, Symbol symbol, MapTransform transform, SizeF size)
+        // 注记的候选锚点（左上角）：点要素试四个角，线/面在定位点居中并允许上下微调。
+        // 传入 angle：候选位置按“旋转后的外接矩形”反推，保证设置旋转角后注记仍然紧贴要素、不会远离。
+        private static PointF[] LabelCandidates(Geometry geometry, Symbol symbol, MapTransform transform,
+            SizeF size, double angle)
         {
             double dpm = transform.Dpm;
             var marker = symbol as SimpleMarkerSymbol;
             float radius = marker == null ? 0f : (float)(ToPixels(marker.Size, dpm) / 2);
             const float gap = 3f;
             if (geometry is Point p)
-                return LabelPlacer.AroundPoint(Screen(p.Coordinate, transform), size, radius, gap);
+                return LabelPlacer.AroundPoint(Screen(p.Coordinate, transform), size, radius, gap, angle);
             if (geometry is MultiPoint mp)
             {
                 if (mp.Points.Count == 0) return null;
-                return LabelPlacer.AroundPoint(Screen(mp.Points[0], transform), size, radius, gap);
+                return LabelPlacer.AroundPoint(Screen(mp.Points[0], transform), size, radius, gap, angle);
             }
             PointF center = GetLabelAnchor(geometry, transform);
             if (float.IsNaN(center.X)) return null;
-            return LabelPlacer.AroundCenter(center, size, size.Height + 4f);
+            float step = LabelPlacer.RotatedSize(size, angle).Height + 4f;
+            return LabelPlacer.AroundCenter(center, size, step, angle);
         }
 
         /// <summary>线取折线中点、面取外包矩形中心的屏幕坐标（不含点要素的让开偏移）。</summary>

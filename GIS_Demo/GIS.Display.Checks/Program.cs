@@ -850,6 +850,70 @@ internal static class Program
             }
         }
 
+        // 3.7.4 设置旋转角后按方位重新计算锚点：四个方位的注记都要紧贴符号
+        //       （此前按“未旋转的宽高”摆放，左上角注记在旋转后会离符号很远）
+        {
+            var boxSize = new SizeF(90, 20);
+            var centre = new PointF(210, 160);
+            const float radius = 7.6f, gap = 3f, near = 1.2f;   // 容差 1.2 像素
+            bool rightTop = true, rightBottom = true, leftTop = true, leftBottom = true;
+            var angles = new[] { 0.0, 30.0, 45.0, 90.0, -45.0, 135.0 };
+            foreach (double angle in angles)
+            {
+                PointF[] candidates = LabelPlacer.AroundPoint(centre, boxSize, radius, gap, angle);
+                RectangleF[] boxes =
+                {
+                    LabelPlacer.Bounds(candidates[0], boxSize, angle),
+                    LabelPlacer.Bounds(candidates[1], boxSize, angle),
+                    LabelPlacer.Bounds(candidates[2], boxSize, angle),
+                    LabelPlacer.Bounds(candidates[3], boxSize, angle)
+                };
+                float expected = radius + gap;
+                if (Math.Abs(boxes[0].Left - (centre.X + expected)) > near || Math.Abs(boxes[0].Bottom - (centre.Y - expected)) > near) rightTop = false;
+                if (Math.Abs(boxes[1].Left - (centre.X + expected)) > near || Math.Abs(boxes[1].Top - (centre.Y + expected)) > near) rightBottom = false;
+                if (Math.Abs(boxes[2].Right - (centre.X - expected)) > near || Math.Abs(boxes[2].Bottom - (centre.Y - expected)) > near) leftTop = false;
+                if (Math.Abs(boxes[3].Right - (centre.X - expected)) > near || Math.Abs(boxes[3].Top - (centre.Y + expected)) > near) leftBottom = false;
+            }
+            Check(rightTop && rightBottom && leftTop && leftBottom,
+                "旋转后按方位反推锚点：0°/30°/45°/90°/-45°/135° 下四个方位的注记都紧贴符号（间隙 = " + (radius + gap) + " 像素）");
+
+            // 线/面注记同理：旋转后仍以定位点为中心
+            bool centered = true;
+            foreach (double angle in angles)
+            {
+                PointF[] candidates = LabelPlacer.AroundCenter(centre, boxSize, 30f, angle);
+                RectangleF box = LabelPlacer.Bounds(candidates[0], boxSize, angle);
+                if (Math.Abs(box.Left + box.Width / 2f - centre.X) > near) centered = false;
+                if (Math.Abs(box.Top + box.Height / 2f - centre.Y) > near) centered = false;
+            }
+            Check(centered, "旋转后线/面注记仍以定位点为中心（不再按未旋转的宽高偏移）");
+        }
+
+        // 3.7.5 画出来验证：旋转 90° 的点注记紧贴符号右上方，而不是被“转出去”很远
+        using (var rotateMap = new MapControl { Size = new Size(420, 320) })
+        {
+            var rotateHandle = rotateMap.Handle;
+            var rotateLayer = SampleData.MakePlanarLayer("旋转注记", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
+            rotateLayer.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true, Field = "名称", RotateAngle = 90,
+                TextSymbol = new TextSymbol { FontName = "Microsoft YaHei UI", FontSize = 14, FontColor = Color.Red }
+            };
+            rotateMap.AddLayer(rotateLayer);
+            rotateMap.SetExtent(new Envelope(0, 100, 0, 100));
+            Application.DoEvents();
+            ScreenPoint rotatePoint = rotateMap.Transform.MapToScreen(new Coordinate(50, 50));
+            using (Bitmap labels = Render(rotateMap))
+            {
+                Rectangle ink = ColorBounds(labels, Color.Red, 60);
+                // 符号半径 ≈ 7.6 像素、间隙 3 像素：旋转后的注记左边界与下边界都应贴着这个偏移
+                float dx = ink.Left - rotatePoint.X, dy = rotatePoint.Y - ink.Bottom;
+                Check(ink.Left > rotatePoint.X && ink.Bottom < rotatePoint.Y && dx < 16 && dy < 16,
+                    "旋转 90° 的点注记紧贴符号右上方（水平让开 " + dx.ToString("0.0") + " 像素、垂直让开 " + dy.ToString("0.0") + " 像素）");
+            }
+        }
+
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
         using (var map = new MapControl { Size = new Size(600, 600) })
         {

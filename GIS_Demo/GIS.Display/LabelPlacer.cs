@@ -115,33 +115,64 @@ namespace GIS.Display
 
         /// <summary>
         /// 点符号的四个候选锚点（注记左上角）：右上 → 右下 → 左上 → 左下。
-        /// 注记整体放在符号外侧，水平方向各让开“符号半径 + 间隙”。
+        /// 锚点按<tspan>旋转后的外接矩形</tspan>反推：
+        /// 旋转时先把注记矩形绕锚点转到目标角度，再让这个“转好之后”的矩形贴到符号外侧，
+        /// 因此四个方位在任意角度下都与符号保持「符号半径 + 间隙」的距离
+        /// （若按未旋转的宽高摆放，设置旋转角后注记会离符号过远，甚至压住符号）。
         /// </summary>
-        public static PointF[] AroundPoint(PointF point, SizeF size, float symbolRadius, float gap)
+        public static PointF[] AroundPoint(PointF point, SizeF size, float symbolRadius, float gap, double angle)
         {
+            RelativeBox(size, angle, out float minX, out float maxX, out float minY, out float maxY);
             float dx = symbolRadius + gap, dy = symbolRadius + gap;
             return new[]
             {
-                new PointF(point.X + dx, point.Y - dy - size.Height),   // 右上
-                new PointF(point.X + dx, point.Y + dy),                 // 右下
-                new PointF(point.X - dx - size.Width, point.Y - dy - size.Height),  // 左上
-                new PointF(point.X - dx - size.Width, point.Y + dy)     // 左下
+                new PointF(point.X + dx - minX, point.Y - dy - maxY),   // 右上
+                new PointF(point.X + dx - minX, point.Y + dy - minY),   // 右下
+                new PointF(point.X - dx - maxX, point.Y - dy - maxY),   // 左上
+                new PointF(point.X - dx - maxX, point.Y + dy - minY)    // 左下
             };
         }
 
         /// <summary>
-        /// 线/面要素的候选锚点：先以定位点为中心，再向上偏移（同一水平位置抬高一点），
-        /// 让被占用的注记有机会挪开而不是直接省略。
+        /// 线/面要素的候选锚点：以定位点为<tspan>旋转后外接矩形</tspan>的中心，
+        /// 再沿垂直方向微调（抬高/降低一个注记高度 + 4 像素），让被占用的注记有机会挪开而不是直接省略。
         /// </summary>
-        public static PointF[] AroundCenter(PointF center, SizeF size, float step)
+        public static PointF[] AroundCenter(PointF center, SizeF size, float step, double angle)
         {
-            float x = center.X - size.Width / 2f, y = center.Y - size.Height / 2f;
+            RelativeBox(size, angle, out float minX, out float maxX, out float minY, out float maxY);
+            float width = maxX - minX, height = maxY - minY;
+            float x = center.X - width / 2f - minX;
+            float y = center.Y - height / 2f - minY;
             return new[]
             {
                 new PointF(x, y),
                 new PointF(x, y - step),
                 new PointF(x, y + step)
             };
+        }
+
+        /// <summary>注记按角度旋转后的外接矩形尺寸（与锚点位置无关）。</summary>
+        public static SizeF RotatedSize(SizeF size, double angle)
+        {
+            RelativeBox(size, angle, out float minX, out float maxX, out float minY, out float maxY);
+            return new SizeF(maxX - minX, maxY - minY);
+        }
+
+        /// <summary>
+        /// 旋转后的注记“相对锚点”占据的范围：以锚点为原点，返回 minX/maxX/minY/maxY。
+        /// 角度为 0 时就是 (0,0)-(Width,Height)。
+        /// </summary>
+        private static void RelativeBox(SizeF size, double angle,
+            out float minX, out float maxX, out float minY, out float maxY)
+        {
+            PointF[] corners = Corners(new PointF(0, 0), size, angle);
+            minX = maxX = corners[0].X;
+            minY = maxY = corners[0].Y;
+            for (int i = 1; i < corners.Length; i++)
+            {
+                minX = Math.Min(minX, corners[i].X); maxX = Math.Max(maxX, corners[i].X);
+                minY = Math.Min(minY, corners[i].Y); maxY = Math.Max(maxY, corners[i].Y);
+            }
         }
 
         private static RectangleF Inflate(RectangleF rect, float padding)
