@@ -742,21 +742,30 @@ internal static class Program
             }
         }
 
-        // 3.7) 注记避让（LabelPlacer）与注记设置窗口（应用 / 退出 / 预览）
-        // 3.7.1 冲突判定：轴对齐、旋转、间隙
+        // 3.7.1 冲突判定：用注记实际占据的平行四边形（不是外接矩形）
         {
-            var a = new RectangleF(0, 0, 40, 16);
-            var b = new RectangleF(30, 8, 40, 16);
-            var far = new RectangleF(200, 200, 40, 16);
-            Check(LabelPlacer.Conflicts(a, 0, b, 0) && !LabelPlacer.Conflicts(a, 0, far, 0),
+            var size = new SizeF(40, 16);
+            PointF[] a = LabelPlacer.Quad(new PointF(0, 0), size, 0);
+            PointF[] b = LabelPlacer.Quad(new PointF(30, 8), size, 0);
+            PointF[] far = LabelPlacer.Quad(new PointF(200, 200), size, 0);
+            Check(LabelPlacer.Conflicts(a, b) && !LabelPlacer.Conflicts(a, far),
                 "注记冲突判定：相交判为冲突、远离不冲突");
             // 旋转 90°：横排在下方、互不冲突的两条注记，其中一条竖排后会转上来压住另一条
-            var below = new RectangleF(0, 30, 40, 16);
-            Check(!LabelPlacer.Conflicts(a, 0, below, 0) && LabelPlacer.Conflicts(a, 0, below, 90),
+            PointF[] belowFlat = LabelPlacer.Quad(new PointF(0, 30), size, 0);
+            PointF[] belowTurned = LabelPlacer.Quad(new PointF(0, 30), size, 90);
+            Check(!LabelPlacer.Conflicts(a, belowFlat) && LabelPlacer.Conflicts(a, belowTurned),
                 "注记冲突判定考虑旋转：横排不冲突的两条注记，其中一条竖排后会判为冲突");
-            var nearly = new RectangleF(41, 0, 40, 16);   // 水平相距 1 像素
-            Check(!LabelPlacer.Conflicts(new RectangleF(0, 0, 40, 16), 0, nearly, 0, 0)
-                && LabelPlacer.Conflicts(new RectangleF(0, 0, 40, 16), 0, nearly, 0, LabelPlacer.Padding),
+            // 关键回归：两条 45° 注记的外接矩形相交，但实际平行四边形并不相接 → 不应误报冲突
+            PointF[] diagA = LabelPlacer.Quad(new PointF(0, 0), size, 45);
+            PointF[] diagB = LabelPlacer.Quad(new PointF(20, 20), size, 45);
+            Check(LabelPlacer.Bounds(new PointF(0, 0), size, 45).IntersectsWith(LabelPlacer.Bounds(new PointF(20, 20), size, 45))
+                && !LabelPlacer.Conflicts(diagA, diagB, 0),
+                "压盖检验用实际平行四边形：外接矩形相交但形状不冲突时不误报");
+            PointF[] diagNear = LabelPlacer.Quad(new PointF(5, 5), size, 45);
+            Check(LabelPlacer.Conflicts(diagA, diagNear, 0), "实际平行四边形相交时仍判为冲突");
+            // 间隙：水平相距 1 像素
+            PointF[] nearly = LabelPlacer.Quad(new PointF(41, 0), size, 0);
+            Check(!LabelPlacer.Conflicts(a, nearly, 0) && LabelPlacer.Conflicts(a, nearly, LabelPlacer.Padding),
                 "注记之间保留最小间隙（默认 " + LabelPlacer.Padding + " 像素）");
         }
 
@@ -850,41 +859,63 @@ internal static class Program
             }
         }
 
-        // 3.7.4 设置旋转角后按方位重新计算锚点：四个方位的注记都要紧贴符号
-        //       （此前按“未旋转的宽高”摆放，左上角注记在旋转后会离符号很远）
+        // 3.7.4 设置旋转角后按方位重新计算锚点：把“实际平行四边形离要素最近的角”贴到偏移位置上
+        //       （此前按外接矩形摆放，旋转后注记会与要素忽远忽近）
         {
             var boxSize = new SizeF(90, 20);
             var centre = new PointF(210, 160);
-            const float radius = 7.6f, gap = 3f, near = 1.2f;   // 容差 1.2 像素
-            bool rightTop = true, rightBottom = true, leftTop = true, leftBottom = true;
-            var angles = new[] { 0.0, 30.0, 45.0, 90.0, -45.0, 135.0 };
+            const float radius = 7.6f, gap = 3f, near = 1.2f;
+            float axis = radius + gap;                     // 每个轴上的偏移量
+            float diagonal = (float)(axis * Math.Sqrt(2)); // 最近角到要素中心的距离（斜向）
+            bool allQuadrants = true, allAngles = true, sameAsFlat = true;
+            var angles = new[] { 0.0, 10.0, 30.0, 45.0, 90.0, -45.0, 135.0 };
             foreach (double angle in angles)
             {
                 PointF[] candidates = LabelPlacer.AroundPoint(centre, boxSize, radius, gap, angle);
-                RectangleF[] boxes =
+                // 右上、右下、左上、左下：各自期望最近角所在的方位
+                var expectRight = new[] { true, true, false, false };
+                var expectTop = new[] { true, false, true, false };
+                for (int i = 0; i < candidates.Length; i++)
                 {
-                    LabelPlacer.Bounds(candidates[0], boxSize, angle),
-                    LabelPlacer.Bounds(candidates[1], boxSize, angle),
-                    LabelPlacer.Bounds(candidates[2], boxSize, angle),
-                    LabelPlacer.Bounds(candidates[3], boxSize, angle)
-                };
-                float expected = radius + gap;
-                if (Math.Abs(boxes[0].Left - (centre.X + expected)) > near || Math.Abs(boxes[0].Bottom - (centre.Y - expected)) > near) rightTop = false;
-                if (Math.Abs(boxes[1].Left - (centre.X + expected)) > near || Math.Abs(boxes[1].Top - (centre.Y + expected)) > near) rightBottom = false;
-                if (Math.Abs(boxes[2].Right - (centre.X - expected)) > near || Math.Abs(boxes[2].Bottom - (centre.Y - expected)) > near) leftTop = false;
-                if (Math.Abs(boxes[3].Right - (centre.X - expected)) > near || Math.Abs(boxes[3].Top - (centre.Y + expected)) > near) leftBottom = false;
+                    PointF[] quad = LabelPlacer.Quad(candidates[i], boxSize, angle);
+                    float nearest = float.MaxValue;
+                    PointF nearestPoint = quad[0];
+                    foreach (PointF v in quad)
+                    {
+                        float d = (float)Math.Sqrt((v.X - centre.X) * (v.X - centre.X) + (v.Y - centre.Y) * (v.Y - centre.Y));
+                        if (d < nearest) { nearest = d; nearestPoint = v; }
+                    }
+                    // 最近角与要素中心的距离应恰好是 √(dx²+dy²)（即贴住要素外侧的偏移点）
+                    if (Math.Abs(nearest - diagonal) > near) allQuadrants = false;
+                    // 且该角确实落在期望的方位上（右/左、上/下）
+                    bool right = nearestPoint.X > centre.X, top = nearestPoint.Y < centre.Y;
+                    if (right != expectRight[i] || top != expectTop[i]) allAngles = false;
+                    // 角度为 0 时，最近角必须与不旋转时完全相同（不改变原有布局）
+                    if (angle == 0)
+                    {
+                        float flatDiagonal = (float)Math.Sqrt(axis * axis + axis * axis);
+                        if (Math.Abs(nearest - flatDiagonal) > 0.01f) sameAsFlat = false;
+                    }
+                }
             }
-            Check(rightTop && rightBottom && leftTop && leftBottom,
-                "旋转后按方位反推锚点：0°/30°/45°/90°/-45°/135° 下四个方位的注记都紧贴符号（间隙 = " + (radius + gap) + " 像素）");
+            Check(allQuadrants && allAngles,
+                "旋转后按方位反推锚点：0°/10°/30°/45°/90°/-45°/135° 下四个方位的注记，离要素最近的角都恰好贴在偏移点上（斜向距离 " + diagonal.ToString("0.0") + " 像素）");
+            Check(sameAsFlat, "角度为 0 时最近角与不旋转时完全一致（不改变原有布局）");
 
             // 线/面注记同理：旋转后仍以定位点为中心
             bool centered = true;
             foreach (double angle in angles)
             {
                 PointF[] candidates = LabelPlacer.AroundCenter(centre, boxSize, 30f, angle);
-                RectangleF box = LabelPlacer.Bounds(candidates[0], boxSize, angle);
-                if (Math.Abs(box.Left + box.Width / 2f - centre.X) > near) centered = false;
-                if (Math.Abs(box.Top + box.Height / 2f - centre.Y) > near) centered = false;
+                PointF[] quad = LabelPlacer.Quad(candidates[0], boxSize, angle);
+                float minX = quad[0].X, maxX = quad[0].X, minY = quad[0].Y, maxY = quad[0].Y;
+                foreach (PointF v in quad)
+                {
+                    minX = Math.Min(minX, v.X); maxX = Math.Max(maxX, v.X);
+                    minY = Math.Min(minY, v.Y); maxY = Math.Max(maxY, v.Y);
+                }
+                if (Math.Abs((minX + maxX) / 2f - centre.X) > near) centered = false;
+                if (Math.Abs((minY + maxY) / 2f - centre.Y) > near) centered = false;
             }
             Check(centered, "旋转后线/面注记仍以定位点为中心（不再按未旋转的宽高偏移）");
         }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -35,9 +35,8 @@ namespace GIS.Display
             double angle = labelRenderer.RotateAngle;
             double dpm = graphics.DpiX / 0.0254;
             bool avoid = labelRenderer.AvoidOverlap;
-            IList<RectangleF> placed = null;
-            IList<double> placedAngles = null;
-            if (avoid) BeginLabelPass(graphics, layer, transform, out placed, out placedAngles);
+            IList<PointF[]> placed = null;
+            if (avoid) BeginLabelPass(graphics, layer, transform, out placed);
             else { LastDrawnLabelCount = 0; LastSkippedLabelCount = 0; }
 
             foreach (Feature feature in layer.FeatureClass.Features)
@@ -56,7 +55,7 @@ namespace GIS.Display
                 {
                     location = candidates[0];       // 不做避让：所有注记都按首选位置绘制
                 }
-                else if (!LabelPlacer.TryPlace(candidates, size, angle, placed, placedAngles, out location))
+                else if (!LabelPlacer.TryPlace(candidates, size, angle, placed, out location))
                 {
                     LastSkippedLabelCount++;        // 候选位置全被占用：省略这条注记，避免叠字
                     continue;
@@ -83,13 +82,12 @@ namespace GIS.Display
         private Layer labelPassLastLayer;
         private double[] labelPassExtent;
         private DateTime labelPassTime = DateTime.MinValue;
-        private readonly List<RectangleF> placedLabels = new List<RectangleF>();
-        private readonly List<double> placedLabelAngles = new List<double>();
+        private readonly List<PointF[]> placedLabels = new List<PointF[]>();
 
         private static readonly TimeSpan LabelPassWindow = TimeSpan.FromMilliseconds(50);
 
         private void BeginLabelPass(Graphics graphics, Layer layer, MapTransform transform,
-            out IList<RectangleF> placed, out IList<double> placedAngles)
+            out IList<PointF[]> placed)
         {
             Envelope extent = transform.GetExtent();
             bool sameExtent = labelPassExtent != null
@@ -102,7 +100,6 @@ namespace GIS.Display
             if (newFrame)
             {
                 placedLabels.Clear();
-                placedLabelAngles.Clear();
                 labelPassGraphics = graphics;
                 labelPassFirstLayer = layer;
                 labelPassExtent = new[] { extent.MinX, extent.MaxX, extent.MinY, extent.MaxY };
@@ -112,7 +109,6 @@ namespace GIS.Display
             labelPassLastLayer = layer;
             labelPassTime = DateTime.UtcNow;
             placed = placedLabels;
-            placedAngles = placedLabelAngles;
         }
 
         /// <summary>测量一条注记的屏幕尺寸（像素）：宽度按宽高比横向缩放。</summary>
