@@ -637,7 +637,8 @@ namespace GIS.Display
 
         private void EditLabel(LayerControl c)
         {
-            if (GIS.Display.UI.LabelRendererForm.Edit(this, c.Layer))
+            // 传入回调：窗口里点“应用”就立刻刷新地图，不必等关闭窗口
+            if (GIS.Display.UI.LabelRendererForm.Edit(this, c.Layer, () => { map.RefreshMap(); Rebuild(); }))
             {
                 map.RefreshMap();
                 Rebuild();

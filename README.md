@@ -1,4 +1,4 @@
-﻿# GIS 软件设计与实现（小组作业）
+# GIS 软件设计与实现（小组作业）
 
 使用 C# 开发一款简易 GIS 软件，实现：交互式数据录入、外部数据导入导出、PostGIS 数据管理、图形基本显示（漫游/缩放）、鼠标交互选择（点选/框选）、符号及属性管理（选做）。
 
@@ -13,8 +13,8 @@
 | 模块 | 负责人 | 内容 | 状态 |
 |---|---|---|---|
 | 模块1 数据结构设计与地图投影实现 | 王小宇 | OGC 简单要素数据结构 + 地图投影/坐标转换 | 已完成（202 项自测全部通过） |
-| 模块2 图形显示与图层管理 | 白宇丹 | 地图绘制、图层管理、鼠标选择 | 已完成（158 项自动检查通过） |
-| 模块3 图层渲染与编辑 | 赵佶昊 | 点/线/面符号编辑器、唯一值/分级渲染、注记、色带、分带选择、渲染符号存取、坐标系统一到 WGS84、GCJ-02、自定义线段特性 | 已完成（158 项自动检查通过） |
+| 模块2 图形显示与图层管理 | 白宇丹 | 地图绘制、图层管理、鼠标选择 | 已完成（171 项自动检查通过） |
+| 模块3 图层渲染与编辑 | 赵佶昊 | 点/线/面符号编辑器、唯一值/分级渲染、注记、色带、分带选择、渲染符号存取、坐标系统一到 WGS84、GCJ-02、自定义线段特性 | 已完成（171 项自动检查通过） |
 | 模块4 数据编辑与导入导出 | 李君迟 | shp 导入导出、要素选取/创建/编辑 | 待补充 |
 | 模块5 与 PostGIS 交互 | 李雨晴 | 从数据库读取图层、保存图层 | 待补充 |
 
@@ -35,11 +35,12 @@ GIS_program/
 │   └── README.md
 └── GIS_Demo/
     ├── GIS.Display/            地图控件类库（net48 WinForms）
-    │   ├── BasicGeometryDrawer.cs  渲染器驱动的点线面绘制 + 注记 + 符号预览
+    │   ├── BasicGeometryDrawer.cs  渲染器驱动的点线面绘制 + 注记（含避让）+ 符号预览
+    │   ├── LabelPlacer.cs          注记摆放与冲突检测（候选位置 / 旋转矩形判交）
     │   ├── LayerControl.cs         图层行控件 + 图层管理面板（模块3）
     │   └── UI/                     颜色选择器、点/线/面符号与渲染/注记编辑器、色带编辑器、分带选择、投影到 WGS84（模块3）
     ├── GIS.Display.Demo/       演示程序（WinExe，内置样例数据）
-    ├── GIS.Display.Checks/     自动检查程序（158 项检查）
+    ├── GIS.Display.Checks/     自动检查程序（171 项检查）
     └── README.md
 ```
 
@@ -58,7 +59,7 @@ dotnet build GIS.sln -m:1
 # 模块1 自测（202 项检查，控制台）
 dotnet run --project MapObjects\GISDemo
 
-# 模块2+3 自动检查（158 项检查）
+# 模块2+3 自动检查（171 项检查）
 .\GIS_Demo\GIS.Display.Checks\bin\Debug\net48\GIS.Display.Checks.exe `
   .\GIS_Demo\GIS.Display.Checks\obj\validation
 
@@ -345,7 +346,7 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 | `SimpleRenderer`（简单渲染） | **1 个符号**（点/线/面之一），图层内所有要素共用 | `Symbol`；另可设 `Symbol.Label`（图例名）、`Symbol.Visible` |
 | `UniqueValueRenderer`（唯一值渲染） | **N 个符号** = 每个唯一值一个 + 1 个默认符号 | `Field`（绑定字段）、`HeadTitle`（图例标题）、`ShowHead`、`DefaultSymbol`、`ShowDefaultSymbol`；数据接口 `AddValue(value, symbol)`/`RemoveValueAt`/`ClearValues`/`GetValue`/`SetValue`/`GetSymbol`/`SetSymbol`/`FindSymbol`/`ValueCount` |
 | `ClassBreaksRenderer`（分级渲染） | **N 个符号** = 每个分级区间一个 + 1 个默认符号 | `Field`、`HeadTitle`、`ShowHead`、`DefaultSymbol`、`ShowDefaultSymbol`；断点接口 `AddBreakValue(value, symbol)`/`ClearBreakValues`/`GetBreakValue`/`SetBreakValue`/`GetSymbol`/`SetSymbol`/`FindSymbol`/`BreakCount`；配色与尺寸渐变 `ApplyColorRamp(ramp)`、`RampColor(start, end)`、`RampSize(start, end)` |
-| `LabelRenderer`（注记，可独立于渲染器开关） | 1 个 `TextSymbol` | `LabelFeatures`（总开关）、`Field`（注记字段）、`RotateAngle`（旋转角）、`TextSymbol`（字体与描边，见 3.3） |
+| `LabelRenderer`（注记，可独立于渲染器开关） | 1 个 `TextSymbol` | `LabelFeatures`（总开关）、`Field`（注记字段）、`RotateAngle`（旋转角）、`AvoidOverlap`（**避免注记相互遮盖**，默认开）、`TextSymbol`（字体与描边，见 3.3） |
 
 三种渲染器共同的基类能力（`Renderer`）：`RendererType`、`GetSymbolFor(feature)`、`Clone()`，以及**绑定属性错误**机制：
 
@@ -422,7 +423,14 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 | `FontRatio` | 倍率 | 1 | **宽高比**：1 原样，>1 水平拉宽、<1 水平压窄（只改水平方向，字号与行高不变）；按文字轮廓路径做矩阵缩放，因此可与描边同时使用 |
 | `UseMask` / `MaskColor` / `MaskWidth` | 布尔 / RGBA / 毫米 | false | **文字描边（晕圈）**开关、颜色与宽度，用于压在深色底图上仍可读 |
 
-注记定位（`BasicGeometryDrawer.GetLabelLocation`）：**点/多点**取点位屏幕坐标、再向右上偏移「符号半径 + 3 像素」（让开符号本身）；**线/复合折线**取折线中点（`GetMidPoint`）；**面/复合面**取**外包矩形中心**（`Envelope.Center`）。文本取自 `Attributes.GetItem(Field)`，为空则跳过该要素；`LabelRenderer` 为空或 `LabelFeatures=false` 时整层不画注记。
+注记定位与摆放（`BasicGeometryDrawer.LabelCandidates` + `LabelPlacer`）：
+
+- **点/多点**：候选锚点依次为符号的**右上 → 右下 → 左上 → 左下**（都整体落在符号外侧，水平让开「符号半径 + 3 像素」）；
+- **线/复合折线**：以折线中点（`GetMidPoint`）为中心居中摆放，并允许整体上/下微调；
+- **面/复合面**：以**外包矩形中心**（`Envelope.Center`）为中心居中摆放，同样允许微调；
+- **避免相互遮盖**（`LabelRenderer.AvoidOverlap`，默认开启）：每条注记按候选顺序试放，与已放置的注记冲突就换下一个候选位置；**所有候选都被占用时该条注记省略不画**（宁可少画一条，也不叠成一团）。冲突判定：角度都为 0 时用外接矩形判交，有旋转时用分离轴定理（SAT）判交，并统一保留 2 像素最小间隙。已放置列表按“一次绘制过程”组织（同一个 `Graphics`、同一范围、连续调用视为同一帧），因此**同一个绘制过程内跨图层的注记也会互相避让**；`BasicGeometryDrawer.LastDrawnLabelCount` / `LastSkippedLabelCount` 给出本次画了多少条、省略了多少条，可用于界面提示与自动检查。
+- 文本取自 `Attributes.GetItem(Field)`，为空则跳过该要素；`LabelRenderer` 为空或 `LabelFeatures=false` 时整层不画注记。
+- **注记设置窗口**（`LabelRendererForm`）四个按钮：**应用**（写回图层但不关窗，地图与图层面板立即刷新）、**确定**（写回并关闭）、**取消**（回滚到打开窗口时的设置）、**退出**（直接关闭，保留已应用的结果）；预览与地图共用同一套测量与绘制代码，因此**宽高比、旋转角度、描边、颜色一改，预览立即变化**。
 
 ### 3.4 绘制实现要点（`BasicGeometryDrawer`）
 
@@ -542,12 +550,12 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 ### 3.11 验证与演示
 
 ```powershell
-# 模块3 的自动检查（158 项，含窗口截图输出）
+# 模块3 的自动检查（171 项，含窗口截图输出）
 .\GIS_Demo\GIS.Display.Checks\bin\Debug\net48\GIS.Display.Checks.exe .\GIS_Demo\GIS.Display.Checks\obj\validation
 ```
 
-- 验证结果：`dotnet build GIS.sln -m:1` 为 **0 警告 0 错误**；`GISDemo` 自测 **202 项**、`GIS.Display.Checks` 自动检查 **158 项**，全部通过。
-- 自动检查程序覆盖：三种渲染器的符号分配与图例、绑定属性错误与恢复（含“分段渲染的符号为 error 且没有默认符号时，重新生成不再报错、默认符号自动补上”的回归检查；以及“绑定错误时错误符号不可单击设置、仍可从右键菜单进入渲染设置、符号编辑器打开感叹号符号不再越界”的回归检查）、读取已有渲染符号后重新绑定字段时**图层面板显示的字段同步更新**（图例标题跟随绑定字段）、**新增三种城市点位符号的像素级检查**（五角星“中心与上方尖角有墨、右上凹口与外部无墨”、实心点圆环“中心实心、点与圈之间为空、外圈有墨”、空心点圆环“中心为空、中心小圈与外圈有墨、两者之间为空”，并与圆形符号对照）、色带取样与文件往返、默认符号随渲染符号文件往返、点/线/面符号各项属性对绘制结果的影响（含像素级断言，例如“面正偏移时洞收缩 101→133 像素”“自定义虚线的偏移/延长/弧线确实改变绘制”）、渲染符号文件往返与**旧格式兼容**、注记渲染（开关 / 字号 / 宽高比 / 旋转 / 描边 / 点线面三种定位）、图层面板橙色坐标系标注与错误标红、坐标系统一与经纬度快照的“反复切换投影后可原样恢复”、西半球负带号与球面高亮补弧、分带选择与数据范围匹配、“设置线段”/“线符号设置”窗口控件不超出可视宽度、颜色按钮文字色与底色明暗一致等，并把 `module2-preview.png`、`segment-editor.png`、`line-symbol-editor.png`、`marker-symbols.png`（七种点符号形状对照图）等截图写入输出目录便于人工核对。
+- 验证结果：`dotnet build GIS.sln -m:1` 为 **0 警告 0 错误**；`GISDemo` 自测 **202 项**、`GIS.Display.Checks` 自动检查 **171 项**，全部通过。
+- 自动检查程序覆盖：三种渲染器的符号分配与图例、绑定属性错误与恢复（含“分段渲染的符号为 error 且没有默认符号时，重新生成不再报错、默认符号自动补上”的回归检查；以及“绑定错误时错误符号不可单击设置、仍可从右键菜单进入渲染设置、符号编辑器打开感叹号符号不再越界”的回归检查）、读取已有渲染符号后重新绑定字段时**图层面板显示的字段同步更新**（图例标题跟随绑定字段）、**新增三种城市点位符号的像素级检查**（五角星“中心与上方尖角有墨、右上凹口与外部无墨”、实心点圆环“中心实心、点与圈之间为空、外圈有墨”、空心点圆环“中心为空、中心小圈与外圈有墨、两者之间为空”，并与圆形符号对照）、色带取样与文件往返、默认符号随渲染符号文件往返、点/线/面符号各项属性对绘制结果的影响（含像素级断言，例如“面正偏移时洞收缩 101→133 像素”“自定义虚线的偏移/延长/弧线确实改变绘制”）、渲染符号文件往返与**旧格式兼容**、注记渲染（开关 / 字号 / 宽高比 / 旋转 / 描边 / 点线面三种定位 / **避让冲突判定与摆放数量** / 注记窗口的应用与取消回滚 / 预览随设置变化）、图层面板橙色坐标系标注与错误标红、坐标系统一与经纬度快照的“反复切换投影后可原样恢复”、西半球负带号与球面高亮补弧、分带选择与数据范围匹配、“设置线段”/“线符号设置”窗口控件不超出可视宽度、颜色按钮文字色与底色明暗一致等，并把 `module2-preview.png`、`segment-editor.png`、`line-symbol-editor.png`、`marker-symbols.png`（七种点符号形状对照图）等截图写入输出目录便于人工核对。
 - 演示：运行 `GIS.Display.Demo`（启动即有 6 个样例图层、12 个要素，字段为 名称/类型/数值）。在左侧图层面板**单击符号**或**右键图层**即可进入渲染/符号/注记设置；工具条“投影”切到高斯-克吕格 / UTM 后点“选择分带”打开球体分带选择；非 WGS84 数据在该图层上右键选“投影到 WGS84”完成转换。
 
 ---

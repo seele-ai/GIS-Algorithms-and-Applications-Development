@@ -692,8 +692,8 @@ internal static class Program
             {
                 Check(CountColor(labels, Color.Yellow, 60) > 20, "开启描边后文字周围出现描边颜色（晕圈）");
                 Rectangle pointInk = ColorBounds(labels, Color.Red, 60);
-                Check(pointInk.Left >= pointOnScreen.X + 3 && pointInk.Top <= pointOnScreen.Y,
-                    "点要素的注记锚点落在点位右上方、水平让开符号（点位 x=" + pointOnScreen.X + "，注记左边界 " + pointInk.Left + "）");
+                Check(pointInk.Left >= pointOnScreen.X + 3 && pointInk.Bottom <= pointOnScreen.Y,
+                    "点要素的注记整体落在符号右上方（点位 x=" + pointOnScreen.X + "，注记左边界 " + pointInk.Left + "，下边界 " + pointInk.Bottom + "）");
             }
             pointLayer.LabelRenderer.TextSymbol.UseMask = false;
 
@@ -714,8 +714,9 @@ internal static class Program
             using (Bitmap labels = Render(labelMap))
             {
                 Rectangle lineInk = ColorBounds(labels, Color.Red, 60);
-                Check(Math.Abs(lineInk.Left - lineMiddle.X) < 40 && Math.Abs(lineInk.Bottom - lineMiddle.Y) < 40,
-                    "线要素的注记落在折线中点附近");
+                Check(Math.Abs(lineInk.Left + lineInk.Width / 2f - lineMiddle.X) < 12
+                    && Math.Abs(lineInk.Top + lineInk.Height / 2f - lineMiddle.Y) < 12,
+                    "线要素的注记以折线中点为中心居中摆放");
             }
 
             labelMap.RemoveLayer(lineLayer);
@@ -735,8 +736,117 @@ internal static class Program
             using (Bitmap labels = Render(labelMap))
             {
                 Rectangle areaInk = ColorBounds(labels, Color.Red, 60);
-                Check(Math.Abs(areaInk.Left - areaMiddle.X) < 60 && Math.Abs(areaInk.Bottom - areaMiddle.Y) < 60,
-                    "面要素的注记落在外包矩形中心附近");
+                Check(Math.Abs(areaInk.Left + areaInk.Width / 2f - areaMiddle.X) < 14
+                    && Math.Abs(areaInk.Top + areaInk.Height / 2f - areaMiddle.Y) < 14,
+                    "面要素的注记以外包矩形中心为中心居中摆放");
+            }
+        }
+
+        // 3.7) 注记避让（LabelPlacer）与注记设置窗口（应用 / 退出 / 预览）
+        // 3.7.1 冲突判定：轴对齐、旋转、间隙
+        {
+            var a = new RectangleF(0, 0, 40, 16);
+            var b = new RectangleF(30, 8, 40, 16);
+            var far = new RectangleF(200, 200, 40, 16);
+            Check(LabelPlacer.Conflicts(a, 0, b, 0) && !LabelPlacer.Conflicts(a, 0, far, 0),
+                "注记冲突判定：相交判为冲突、远离不冲突");
+            // 旋转 90°：横排在下方、互不冲突的两条注记，其中一条竖排后会转上来压住另一条
+            var below = new RectangleF(0, 30, 40, 16);
+            Check(!LabelPlacer.Conflicts(a, 0, below, 0) && LabelPlacer.Conflicts(a, 0, below, 90),
+                "注记冲突判定考虑旋转：横排不冲突的两条注记，其中一条竖排后会判为冲突");
+            var nearly = new RectangleF(41, 0, 40, 16);   // 水平相距 1 像素
+            Check(!LabelPlacer.Conflicts(new RectangleF(0, 0, 40, 16), 0, nearly, 0, 0)
+                && LabelPlacer.Conflicts(new RectangleF(0, 0, 40, 16), 0, nearly, 0, LabelPlacer.Padding),
+                "注记之间保留最小间隙（默认 " + LabelPlacer.Padding + " 像素）");
+        }
+
+        // 3.7.2 避让效果：8 个几乎重合的点要素 —— 关闭避让时注记全部叠在一起（只看到一条），
+        //       开启避让后摊到 4 个候选位置（其余候选全被占用 → 省略，而不是叠字）
+        using (var avoidMap = new MapControl { Size = new Size(420, 320) })
+        {
+            var avoidHandle = avoidMap.Handle;
+            var wkts = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < 8; i++) wkts.Add("POINT (" + (50 + i * 0.05).ToString("0.##") + " 50)");
+            var crowded = SampleData.MakePlanarLayer("密集注记点", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, wkts.ToArray());
+            crowded.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true, Field = "名称", AvoidOverlap = true,
+                TextSymbol = new TextSymbol { FontName = "Microsoft YaHei UI", FontSize = 14, FontColor = Color.Red }
+            };
+            avoidMap.AddLayer(crowded);
+            avoidMap.SetExtent(new Envelope(0, 100, 0, 100));
+            Application.DoEvents();
+            var drawer = avoidMap.Renderer as BasicGeometryDrawer;
+            int inkAvoid, inkAll;
+            using (Bitmap labels = Render(avoidMap))
+                inkAvoid = CountColor(labels, Color.Red, 60);
+            int drawnAvoid = drawer.LastDrawnLabelCount, skippedAvoid = drawer.LastSkippedLabelCount;
+            Check(drawnAvoid == 4 && skippedAvoid == 4,
+                "8 个重合要素：避让时摊到 4 个候选位置、其余 4 条省略（画出 " + drawnAvoid + "、省略 " + skippedAvoid + "）");
+            crowded.LabelRenderer.AvoidOverlap = false;
+            using (Bitmap labels = Render(avoidMap))
+                inkAll = CountColor(labels, Color.Red, 60);
+            Check(drawer.LastDrawnLabelCount == 8 && drawer.LastSkippedLabelCount == 0,
+                "关闭避让后 8 条注记全部绘制（画在同一位置，叠成一条）");
+            Check(inkAvoid > inkAll * 1.3,
+                "避让让注记摊开而不是叠在一起：红色墨迹 " + inkAll + " → " + inkAvoid + " 像素");
+        }
+
+        // 3.7.3 注记设置窗口：按钮齐备、“应用”立即写回图层、“取消”回滚、预览随设置变化
+        {
+            var formLayer = SampleData.MakePlanarLayer("注记窗口", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
+            int appliedCount = 0;
+            using (var form = LabelRendererForm.Create(formLayer, () => appliedCount++))
+            {
+                form.ShowInTaskbar = false;
+                form.Opacity = 0;
+                form.Show();
+                Application.DoEvents();
+                var texts = AllButtons(form).Select(x => x.Text).ToList();
+                Check(texts.Contains("应用") && texts.Contains("退出") && texts.Contains("确定") && texts.Contains("取消"),
+                    "注记设置窗口提供 应用 / 确定 / 取消 / 退出 四个按钮");
+
+                // 预览必须随宽高比、旋转角度变化（此前这两项不影响预览）
+                var ratioBox = AllNumerics(form).FirstOrDefault(n => n.Minimum == 0.5m && n.Maximum == 3m);
+                var rotateBox = AllNumerics(form).FirstOrDefault(n => n.Minimum == -360m && n.Maximum == 360m);
+                Check(ratioBox != null && rotateBox != null, "注记设置窗口有宽高比与旋转角度输入框");
+                ratioBox.Value = 0.6m;
+                Application.DoEvents();
+                int narrow;
+                using (Bitmap p = form.RenderPreview()) narrow = InkBounds(p, Color.White).Width;
+                ratioBox.Value = 1.8m;
+                Application.DoEvents();
+                int wide;
+                using (Bitmap p = form.RenderPreview()) wide = InkBounds(p, Color.White).Width;
+                Check(wide > narrow * 1.5, "改宽高比后预览立即变化（" + narrow + " → " + wide + " 像素宽）");
+                ratioBox.Value = 1m;
+
+                rotateBox.Value = 0m;
+                Application.DoEvents();
+                Rectangle flat;
+                using (Bitmap p = form.RenderPreview()) flat = InkBounds(p, Color.White);
+                rotateBox.Value = 90m;
+                Application.DoEvents();
+                Rectangle turned;
+                using (Bitmap p = form.RenderPreview()) turned = InkBounds(p, Color.White);
+                Check(turned.Height > turned.Width && flat.Width > flat.Height,
+                    "改旋转角度后预览立即变化（0° 时 " + flat.Width + "×" + flat.Height + "，90° 时 " + turned.Width + "×" + turned.Height + "）");
+                rotateBox.Value = 0m;
+
+                // “应用”：立即写回图层并通知外部刷新
+                foreach (Button b in AllButtons(form)) if (b.Text == "应用") b.PerformClick();
+                Check(appliedCount > 0 && formLayer.LabelRenderer != null
+                    && Math.Abs(formLayer.LabelRenderer.TextSymbol.FontRatio - 1) < 1e-9,
+                    "点“应用”立即写回图层（宽高比已按界面值 1.0 保存）并通知刷新");
+                rotateBox.Value = 45m;
+                foreach (Button b in AllButtons(form)) if (b.Text == "应用") b.PerformClick();
+                Check(formLayer.LabelRenderer.RotateAngle == 45, "再次点“应用”会把新的旋转角度写回图层");
+                foreach (Button b in AllButtons(form)) if (b.Text == "取消") b.PerformClick();
+                Check(formLayer.LabelRenderer == null || Math.Abs(formLayer.LabelRenderer.RotateAngle) < 1e-9,
+                    "点“取消”回滚到打开窗口时的状态（打开前没有注记设置 → 回滚后仍为空）");
+                form.Hide();
             }
         }
 
