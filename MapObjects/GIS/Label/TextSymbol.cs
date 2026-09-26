@@ -48,12 +48,17 @@ namespace GIS
             set { _FontColor = value; }
         }
 
+        /// <summary>
+        /// 文字宽高比：1 = 原样，&gt;1 水平拉宽、&lt;1 水平压窄（只改水平方向，字号与行高不变）。
+        /// 绘制时按文字轮廓路径做水平缩放，因此可与描边（晕圈）同时使用。
+        /// </summary>
         public double FontRatio
         {
             get { return _FontRatio; }
             set { _FontRatio = value; }
         }
 
+        /// <summary>是否给文字加描边（晕圈）：先按 MaskColor / MaskWidth 描边，再填充 FontColor。</summary>
         public bool UseMask
         {
             get { return _UseMask; }

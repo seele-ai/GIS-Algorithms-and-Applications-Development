@@ -673,26 +673,42 @@ namespace GIS.Display
                 {
                     if (angle != 0)
                     {
+                        // 围绕注记锚点旋转（RotateAngle 为逆时针角度，GDI+ 的 RotateTransform 顺时针为正，故取负）
                         g.TranslateTransform(location.X, location.Y);
                         g.RotateTransform((float)-angle);
                         g.TranslateTransform(-location.X, -location.Y);
                     }
-                    if (ts.UseMask)
+                    bool stretch = Math.Abs(ts.FontRatio - 1.0) > 1e-6;   // 宽高比 ≠ 1 时需要按文字轮廓拉伸
+                    if (!stretch && !ts.UseMask)
                     {
+                        using (var brush = new SolidBrush(ts.FontColor))
+                            g.DrawString(text, font, brush, location);
+                    }
+                    else
+                    {
+                        // 取文字轮廓路径：既能描边（晕圈），也能按宽高比水平缩放
                         using (var path = new GraphicsPath())
                         {
                             path.AddString(text, font.FontFamily, (int)font.Style, font.SizeInPoints,
                                 location, StringFormat.GenericDefault);
-                            using (var pen = new Pen(ts.MaskColor, (float)Math.Max(0.5, ToPixels(ts.MaskWidth, g.DpiX / 0.0254))))
-                                g.DrawPath(pen, path);
+                            if (stretch)
+                            {
+                                using (var matrix = new Matrix())
+                                {
+                                    matrix.Translate(-location.X, -location.Y, MatrixOrder.Append);
+                                    matrix.Scale((float)ts.FontRatio, 1f, MatrixOrder.Append);
+                                    matrix.Translate(location.X, location.Y, MatrixOrder.Append);
+                                    path.Transform(matrix);
+                                }
+                            }
+                            if (ts.UseMask)
+                            {
+                                using (var pen = new Pen(ts.MaskColor, (float)Math.Max(0.5, ToPixels(ts.MaskWidth, g.DpiX / 0.0254))))
+                                    g.DrawPath(pen, path);
+                            }
                             using (var brush = new SolidBrush(ts.FontColor))
                                 g.FillPath(brush, path);
                         }
-                    }
-                    else
-                    {
-                        using (var brush = new SolidBrush(ts.FontColor))
-                            g.DrawString(text, font, brush, location);
                     }
                 }
                 finally { g.Restore(state); }

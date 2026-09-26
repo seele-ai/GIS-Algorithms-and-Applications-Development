@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -622,6 +622,124 @@ internal static class Program
             }
         }
 
+        // 3.6) 注记渲染：开关 / 字号 / 颜色 / 宽高比 / 旋转 / 描边 / 定位
+        using (var labelMap = new MapControl { Size = new Size(420, 320) })
+        {
+            var labelHandle = labelMap.Handle;
+            var pointLayer = SampleData.MakePlanarLayer("注记点", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
+            pointLayer.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true,
+                Field = "名称",
+                TextSymbol = new TextSymbol
+                {
+                    FontName = "Microsoft YaHei UI", FontSize = 16,
+                    FontColor = Color.Red, MaskColor = Color.Yellow
+                }
+            };
+            labelMap.AddLayer(pointLayer);
+            labelMap.SetExtent(new Envelope(0, 100, 0, 100));
+            Application.DoEvents();
+            ScreenPoint pointOnScreen = labelMap.Transform.MapToScreen(new Coordinate(50, 50));
+            using (Bitmap labels = Render(labelMap))
+                Check(CountColor(labels, Color.Red, 60) > 20, "开启注记后文字被绘制出来");
+            pointLayer.LabelRenderer.LabelFeatures = false;
+            using (Bitmap labels = Render(labelMap))
+                Check(CountColor(labels, Color.Red, 60) == 0, "关闭注记后文字不再绘制");
+            pointLayer.LabelRenderer.LabelFeatures = true;
+
+            int width16, height16;
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle bounds = ColorBounds(labels, Color.Red, 60);
+                width16 = bounds.Width; height16 = bounds.Height;
+            }
+            pointLayer.LabelRenderer.TextSymbol.FontSize = 28;
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle bounds = ColorBounds(labels, Color.Red, 60);
+                Check(bounds.Width > width16 * 1.3 && bounds.Height > height16 * 1.3,
+                    "字号越大注记越大（28 号墨迹 " + bounds.Width + "×" + bounds.Height + " 明显大于 16 号 " + width16 + "×" + height16 + "）");
+            }
+            pointLayer.LabelRenderer.TextSymbol.FontSize = 16;
+
+            pointLayer.LabelRenderer.TextSymbol.FontRatio = 0.6;
+            int narrowWidth, narrowHeight;
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle bounds = ColorBounds(labels, Color.Red, 60);
+                narrowWidth = bounds.Width; narrowHeight = bounds.Height;
+            }
+            pointLayer.LabelRenderer.TextSymbol.FontRatio = 1.8;
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle bounds = ColorBounds(labels, Color.Red, 60);
+                Check(bounds.Width > narrowWidth * 1.6 && Math.Abs(bounds.Height - narrowHeight) <= 6,
+                    "宽高比只改水平方向：1.8 比 0.6 明显更宽、高度基本不变（" + narrowWidth + " → " + bounds.Width + " 像素）");
+            }
+            pointLayer.LabelRenderer.TextSymbol.FontRatio = 1;
+
+            pointLayer.LabelRenderer.RotateAngle = 90;
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle rotated = ColorBounds(labels, Color.Red, 60);
+                Check(rotated.Height > rotated.Width && width16 > height16, "旋转 90° 后注记的横向/纵向包围盒互换");
+            }
+            pointLayer.LabelRenderer.RotateAngle = 0;
+            pointLayer.LabelRenderer.TextSymbol.UseMask = true;   // 打开描边（晕圈）
+            using (Bitmap labels = Render(labelMap))
+            {
+                Check(CountColor(labels, Color.Yellow, 60) > 20, "开启描边后文字周围出现描边颜色（晕圈）");
+                Rectangle pointInk = ColorBounds(labels, Color.Red, 60);
+                Check(pointInk.Left >= pointOnScreen.X + 3 && pointInk.Top <= pointOnScreen.Y,
+                    "点要素的注记锚点落在点位右上方、水平让开符号（点位 x=" + pointOnScreen.X + "，注记左边界 " + pointInk.Left + "）");
+            }
+            pointLayer.LabelRenderer.TextSymbol.UseMask = false;
+
+            labelMap.RemoveLayer(pointLayer);
+            var lineLayer = SampleData.MakePlanarLayer("注记线", GeometryTypeConstant.LineString,
+                new SimpleLineSymbol { Color = Color.Blue, Size = 1 }, "LINESTRING (10 60, 90 60)");
+            lineLayer.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true, Field = "名称",
+                TextSymbol = new TextSymbol
+                {
+                    FontName = "Microsoft YaHei UI", FontSize = 16, FontColor = Color.Red, MaskColor = Color.Yellow
+                }
+            };
+            labelMap.AddLayer(lineLayer);
+            Application.DoEvents();
+            ScreenPoint lineMiddle = labelMap.Transform.MapToScreen(new Coordinate(50, 60));
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle lineInk = ColorBounds(labels, Color.Red, 60);
+                Check(Math.Abs(lineInk.Left - lineMiddle.X) < 40 && Math.Abs(lineInk.Bottom - lineMiddle.Y) < 40,
+                    "线要素的注记落在折线中点附近");
+            }
+
+            labelMap.RemoveLayer(lineLayer);
+            var areaLayer = SampleData.MakePlanarLayer("注记面", GeometryTypeConstant.Polygon,
+                new SimpleFillSymbol { Color = Color.FromArgb(60, Color.Blue) }, "POLYGON ((10 10, 90 10, 90 90, 10 90, 10 10))");
+            areaLayer.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true, Field = "名称",
+                TextSymbol = new TextSymbol
+                {
+                    FontName = "Microsoft YaHei UI", FontSize = 16, FontColor = Color.Red, MaskColor = Color.Yellow
+                }
+            };
+            labelMap.AddLayer(areaLayer);
+            Application.DoEvents();
+            ScreenPoint areaMiddle = labelMap.Transform.MapToScreen(new Coordinate(50, 50));
+            using (Bitmap labels = Render(labelMap))
+            {
+                Rectangle areaInk = ColorBounds(labels, Color.Red, 60);
+                Check(Math.Abs(areaInk.Left - areaMiddle.X) < 60 && Math.Abs(areaInk.Bottom - areaMiddle.Y) < 60,
+                    "面要素的注记落在外包矩形中心附近");
+            }
+        }
+
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
         using (var map = new MapControl { Size = new Size(600, 600) })
         {
@@ -1159,6 +1277,56 @@ internal static class Program
         for (int dx = from; dx <= to; dx++)
             if (InkAt(bitmap, cx + dx, cy)) return true;
         return false;
+    }
+
+    // 统计与指定颜色接近（容差 tol）的像素个数，用于注记的文字颜色 / 描边颜色
+    private static int CountColor(Bitmap bitmap, Color expected, int tol)
+    {
+        int count = 0;
+        for (int y = 0; y < bitmap.Height; y++)
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                Color c = bitmap.GetPixel(x, y);
+                if (Math.Abs(c.R - expected.R) <= tol && Math.Abs(c.G - expected.G) <= tol && Math.Abs(c.B - expected.B) <= tol)
+                    count++;
+            }
+        return count;
+    }
+
+    // 非背景像素（与 background 差异明显）的外接矩形，用于衡量注记的墨迹范围
+    private static Rectangle InkBounds(Bitmap bitmap, Color background)
+    {
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+        for (int y = 0; y < bitmap.Height; y++)
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                Color c = bitmap.GetPixel(x, y);
+                if (Math.Abs(c.R - background.R) <= 24 && Math.Abs(c.G - background.G) <= 24 && Math.Abs(c.B - background.B) <= 24)
+                    continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        return maxX < 0 ? Rectangle.Empty : Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+    }
+
+    // 指定颜色（容差 tol）像素的外接矩形：用于只量注记文字本身，排除符号与描边
+    private static Rectangle ColorBounds(Bitmap bitmap, Color expected, int tol)
+    {
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+        for (int y = 0; y < bitmap.Height; y++)
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                Color c = bitmap.GetPixel(x, y);
+                if (Math.Abs(c.R - expected.R) > tol || Math.Abs(c.G - expected.G) > tol || Math.Abs(c.B - expected.B) > tol)
+                    continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        return maxX < 0 ? Rectangle.Empty : Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
     }
 
     private static int DiffPixels(Bitmap a, Bitmap b)
