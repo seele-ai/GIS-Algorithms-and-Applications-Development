@@ -9,6 +9,7 @@ namespace GIS
         private TextSymbol _TextSymbol = new TextSymbol();
         private string _Field = "";
         private double _RotateAngle = 0;
+        private bool _AvoidOverlap = true;
 
         /// <summary>是否为图层启用注记</summary>
         public bool LabelFeatures
@@ -38,6 +39,17 @@ namespace GIS
             set { _RotateAngle = value; }
         }
 
+        /// <summary>
+        /// 是否避免注记相互遮盖（默认开启）：开启时每条注记先试首选位置，
+        /// 若与已放置的注记冲突就换候选位置，全部候选都冲突则跳过不画（宁可少画一条也不叠成一团）。
+        /// 关闭时所有注记都按首选位置绘制（可能与相邻注记重叠）。
+        /// </summary>
+        public bool AvoidOverlap
+        {
+            get { return _AvoidOverlap; }
+            set { _AvoidOverlap = value; }
+        }
+
         public LabelRenderer Clone()
         {
             LabelRenderer r = new LabelRenderer();
@@ -45,6 +57,7 @@ namespace GIS
             r._TextSymbol = _TextSymbol.Clone();
             r._Field = _Field;
             r._RotateAngle = _RotateAngle;
+            r._AvoidOverlap = _AvoidOverlap;
             return r;
         }
     }

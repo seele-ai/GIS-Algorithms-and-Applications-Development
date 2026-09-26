@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -31,6 +31,14 @@ namespace GIS.Display
             if (layer == null || layer.FeatureClass == null) return;
             LabelRenderer labelRenderer = layer.LabelRenderer;
             if (labelRenderer == null || !labelRenderer.LabelFeatures) return;
+            TextSymbol ts = labelRenderer.TextSymbol ?? new TextSymbol();
+            double angle = labelRenderer.RotateAngle;
+            double dpm = graphics.DpiX / 0.0254;
+            bool avoid = labelRenderer.AvoidOverlap;
+            IList<PointF[]> placed = null;
+            if (avoid) BeginLabelPass(graphics, layer, transform, out placed);
+            else { LastDrawnLabelCount = 0; LastSkippedLabelCount = 0; }
+
             foreach (Feature feature in layer.FeatureClass.Features)
             {
                 if (feature.Geometry == null || feature.Geometry.IsEmpty) continue;
@@ -38,11 +46,121 @@ namespace GIS.Display
                     Convert.ToString(feature.Attributes.GetItem(labelRenderer.Field));
                 if (string.IsNullOrEmpty(text)) continue;
                 Symbol symbol = GetSymbol(layer, feature);
-                PointF loc = GetLabelLocation(feature.Geometry, symbol, transform);
-                if (!float.IsNaN(loc.X))
-                    DrawLabel(graphics, text, loc, labelRenderer.TextSymbol, labelRenderer.RotateAngle);
+                SizeF size = MeasureLabel(graphics, text, ts, dpm);
+                PointF[] candidates = LabelCandidates(feature.Geometry, symbol, transform, size, angle);
+                if (candidates == null || candidates.Length == 0) continue;
+
+                PointF location;
+                if (!avoid)
+                {
+                    location = candidates[0];       // 不做避让：所有注记都按首选位置绘制
+                }
+                else if (!LabelPlacer.TryPlace(candidates, size, angle, placed, out location))
+                {
+                    LastSkippedLabelCount++;        // 候选位置全被占用：省略这条注记，避免叠字
+                    continue;
+                }
+                DrawTextLabel(graphics, text, location, ts, angle);
+                LastDrawnLabelCount++;
             }
         }
+
+        /// <summary>
+        /// 最近一次注记绘制过程中实际画出的注记条数（同一个绘制过程跨图层累计，供界面提示与自动检查使用）。
+        /// </summary>
+        public int LastDrawnLabelCount { get; private set; }
+
+        /// <summary>最近一次注记绘制过程中因为避让冲突被省略的注记条数。</summary>
+        public int LastSkippedLabelCount { get; private set; }
+
+        #region 注记摆放（避让）
+
+        // 一次“注记绘制过程”的范围：同一个 Graphics、同一次视窗/范围、相邻的连续调用视为同一帧。
+        // 地图控件是按图层逐个调用 DrawLayerLabels 的，用这些条件把跨图层的注记也放进同一批做避让。
+        private Graphics labelPassGraphics;
+        private Layer labelPassFirstLayer;
+        private Layer labelPassLastLayer;
+        private double[] labelPassExtent;
+        private DateTime labelPassTime = DateTime.MinValue;
+        private readonly List<PointF[]> placedLabels = new List<PointF[]>();
+
+        private static readonly TimeSpan LabelPassWindow = TimeSpan.FromMilliseconds(50);
+
+        private void BeginLabelPass(Graphics graphics, Layer layer, MapTransform transform,
+            out IList<PointF[]> placed)
+        {
+            Envelope extent = transform.GetExtent();
+            bool sameExtent = labelPassExtent != null
+                && Math.Abs(labelPassExtent[0] - extent.MinX) < 1e-9 && Math.Abs(labelPassExtent[1] - extent.MaxX) < 1e-9
+                && Math.Abs(labelPassExtent[2] - extent.MinY) < 1e-9 && Math.Abs(labelPassExtent[3] - extent.MaxY) < 1e-9;
+            bool newFrame = !ReferenceEquals(graphics, labelPassGraphics)
+                || !sameExtent
+                || ReferenceEquals(layer, labelPassLastLayer)          // 又回到同一图层 → 新的一帧
+                || DateTime.UtcNow - labelPassTime > LabelPassWindow;
+            if (newFrame)
+            {
+                placedLabels.Clear();
+                labelPassGraphics = graphics;
+                labelPassFirstLayer = layer;
+                labelPassExtent = new[] { extent.MinX, extent.MaxX, extent.MinY, extent.MaxY };
+                LastDrawnLabelCount = 0;
+                LastSkippedLabelCount = 0;
+            }
+            labelPassLastLayer = layer;
+            labelPassTime = DateTime.UtcNow;
+            placed = placedLabels;
+        }
+
+        /// <summary>测量一条注记的屏幕尺寸（像素）：宽度按宽高比横向缩放。</summary>
+        public static SizeF MeasureLabel(Graphics g, string text, TextSymbol ts, double dpm)
+        {
+            if (ts == null) ts = new TextSymbol();
+            FontStyle style = FontStyle.Regular;
+            if (ts.Bold) style |= FontStyle.Bold;
+            if (ts.Italic) style |= FontStyle.Italic;
+            using (var font = new Font(ts.FontName, ts.FontSize, style))
+            {
+                SizeF size = g.MeasureString(text, font);
+                size.Width = (float)(size.Width * ts.FontRatio);
+                return size;
+            }
+        }
+
+        // 注记的候选锚点（左上角）：点要素试四个角，线/面在定位点居中并允许上下微调。
+        // 传入 angle：候选位置按“旋转后的外接矩形”反推，保证设置旋转角后注记仍然紧贴要素、不会远离。
+        private static PointF[] LabelCandidates(Geometry geometry, Symbol symbol, MapTransform transform,
+            SizeF size, double angle)
+        {
+            double dpm = transform.Dpm;
+            var marker = symbol as SimpleMarkerSymbol;
+            float radius = marker == null ? 0f : (float)(ToPixels(marker.Size, dpm) / 2);
+            const float gap = 3f;
+            if (geometry is Point p)
+                return LabelPlacer.AroundPoint(Screen(p.Coordinate, transform), size, radius, gap, angle);
+            if (geometry is MultiPoint mp)
+            {
+                if (mp.Points.Count == 0) return null;
+                return LabelPlacer.AroundPoint(Screen(mp.Points[0], transform), size, radius, gap, angle);
+            }
+            PointF center = GetLabelAnchor(geometry, transform);
+            if (float.IsNaN(center.X)) return null;
+            float step = LabelPlacer.RotatedSize(size, angle).Height + 4f;
+            return LabelPlacer.AroundCenter(center, size, step, angle);
+        }
+
+        /// <summary>线取折线中点、面取外包矩形中心的屏幕坐标（不含点要素的让开偏移）。</summary>
+        private static PointF GetLabelAnchor(Geometry geometry, MapTransform transform)
+        {
+            if (geometry is LineString ls)
+                return ls.IsEmpty ? new PointF(float.NaN, float.NaN) : Screen(ls.GetMidPoint(), transform);
+            if (geometry is MultiLineString mls)
+                return mls.Parts.Count == 0 || mls.Parts[0].IsEmpty
+                    ? new PointF(float.NaN, float.NaN) : Screen(mls.Parts[0].GetMidPoint(), transform);
+            Envelope env = geometry.GetEnvelope();
+            return Screen(new Coordinate(env.CenterX, env.CenterY), transform);
+        }
+
+        #endregion
 
         private static Symbol GetSymbol(Layer layer, Feature feature)
         {
@@ -627,40 +745,8 @@ namespace GIS.Display
 
         #region 注记
 
-        private static PointF GetLabelLocation(Geometry geometry, Symbol symbol, MapTransform transform)
-        {
-            if (geometry == null) return new PointF(float.NaN, float.NaN);
-            double halfMarker = 0;
-            var marker = symbol as SimpleMarkerSymbol;
-            if (marker != null) halfMarker = ToPixels(marker.Size, transform.Dpm) / 2;
-
-            if (geometry is Point p)
-            {
-                PointF s = Screen(p.Coordinate, transform);
-                return new PointF(s.X + (float)halfMarker + 3, s.Y - (float)halfMarker - 3);
-            }
-            if (geometry is MultiPoint mp)
-            {
-                Coordinate c = mp.Points.Count > 0 ? mp.Points[0] : default(Coordinate);
-                PointF s = Screen(c, transform);
-                return new PointF(s.X + (float)halfMarker + 3, s.Y - (float)halfMarker - 3);
-            }
-            if (geometry is LineString ls)
-            {
-                if (ls.IsEmpty) return new PointF(float.NaN, float.NaN);
-                return Screen(ls.GetMidPoint(), transform);
-            }
-            if (geometry is MultiLineString mls)
-            {
-                if (mls.Parts.Count == 0 || mls.Parts[0].IsEmpty) return new PointF(float.NaN, float.NaN);
-                return Screen(mls.Parts[0].GetMidPoint(), transform);
-            }
-            // 面状要素：外接矩形中心
-            Envelope env = geometry.GetEnvelope();
-            return Screen(new Coordinate(env.CenterX, env.CenterY), transform);
-        }
-
-        private static void DrawLabel(Graphics g, string text, PointF location, TextSymbol ts, double angle)
+        /// <summary>绘制一条注记（地图与编辑器预览共用同一套代码，保证“预览所见即地图所得”）。</summary>
+        public static void DrawTextLabel(Graphics g, string text, PointF location, TextSymbol ts, double angle)
         {
             if (ts == null) ts = new TextSymbol();
             FontStyle style = FontStyle.Regular;
@@ -673,26 +759,42 @@ namespace GIS.Display
                 {
                     if (angle != 0)
                     {
+                        // 围绕注记锚点旋转（RotateAngle 为逆时针角度，GDI+ 的 RotateTransform 顺时针为正，故取负）
                         g.TranslateTransform(location.X, location.Y);
                         g.RotateTransform((float)-angle);
                         g.TranslateTransform(-location.X, -location.Y);
                     }
-                    if (ts.UseMask)
+                    bool stretch = Math.Abs(ts.FontRatio - 1.0) > 1e-6;   // 宽高比 ≠ 1 时需要按文字轮廓拉伸
+                    if (!stretch && !ts.UseMask)
                     {
+                        using (var brush = new SolidBrush(ts.FontColor))
+                            g.DrawString(text, font, brush, location);
+                    }
+                    else
+                    {
+                        // 取文字轮廓路径：既能描边（晕圈），也能按宽高比水平缩放
                         using (var path = new GraphicsPath())
                         {
                             path.AddString(text, font.FontFamily, (int)font.Style, font.SizeInPoints,
                                 location, StringFormat.GenericDefault);
-                            using (var pen = new Pen(ts.MaskColor, (float)Math.Max(0.5, ToPixels(ts.MaskWidth, g.DpiX / 0.0254))))
-                                g.DrawPath(pen, path);
+                            if (stretch)
+                            {
+                                using (var matrix = new Matrix())
+                                {
+                                    matrix.Translate(-location.X, -location.Y, MatrixOrder.Append);
+                                    matrix.Scale((float)ts.FontRatio, 1f, MatrixOrder.Append);
+                                    matrix.Translate(location.X, location.Y, MatrixOrder.Append);
+                                    path.Transform(matrix);
+                                }
+                            }
+                            if (ts.UseMask)
+                            {
+                                using (var pen = new Pen(ts.MaskColor, (float)Math.Max(0.5, ToPixels(ts.MaskWidth, g.DpiX / 0.0254))))
+                                    g.DrawPath(pen, path);
+                            }
                             using (var brush = new SolidBrush(ts.FontColor))
                                 g.FillPath(brush, path);
                         }
-                    }
-                    else
-                    {
-                        using (var brush = new SolidBrush(ts.FontColor))
-                            g.DrawString(text, font, brush, location);
                     }
                 }
                 finally { g.Restore(state); }
