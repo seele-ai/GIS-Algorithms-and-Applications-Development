@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -508,13 +508,17 @@ namespace GIS.Display
             return result;
         }
 
-        // 由 from→to 方向求单位法线
+        // 由 from→to 方向求单位法线。
+        // 约定：取**线的左侧**——屏幕上 y 轴向下，方向 (dx,dy) 的左侧是 (dy,-dx)：
+        // 例如水平向右的线，(dy,-dx) = (0,-1) 即向上（人面向右时左手朝上）。
+        // 这里必须与界面上的“偏移量（毫米，正=左 负=右）”以及 LineOffset 的“正值向线左侧”一致；
+        // 此前写成 (-dy,dx)（即线的右侧），导致“自定义虚线里设置正偏移，线段却往右下方跑”。
         private static PointF NormalOf(PointF to, PointF from)
         {
             float dx = to.X - from.X, dy = to.Y - from.Y;
             float len = (float)Math.Sqrt(dx * dx + dy * dy);
             if (len == 0) return new PointF(0, 0);
-            return new PointF(-dy / len, dx / len);
+            return new PointF(dy / len, -dx / len);
         }
 
         private static Pen LinePen(SimpleLineSymbol symbol, double dpm)

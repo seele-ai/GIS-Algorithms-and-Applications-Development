@@ -999,6 +999,29 @@ internal static class Program
                 + "°，此前固定 1 个地图单位会放大到 2°）");
         }
 
+        // 3.3b) 单段“偏移”的方向：正偏移把本段移到线的左侧（水平线上 = 向上），负偏移移到右侧（向下）
+        {
+            var offsetSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            offsetSymbol.DashElements.Add(new LineDashElement
+            {
+                Length = 10, Color = Color.Black, Width = 0.8, OffsetEnabled = true, Offset = 2
+            });
+            offsetSymbol.DashElements.Add(new LineDashElement { Length = 10, Color = Color.Transparent, Width = 0.01 });
+            using (Bitmap shifted = DrawLineSample(offsetSymbol))
+            {
+                Rectangle ink = InkBounds(shifted, Color.White);
+                Check(ink.Bottom < 40 && ink.Top < 40,
+                    "自定义虚线的单段偏移按“正=左”平移（水平线上整体上移；实测墨迹 y " + ink.Top + "~" + ink.Bottom + "，基线 y=40）");
+            }
+            offsetSymbol.DashElements[0].Offset = -2;
+            using (Bitmap shifted = DrawLineSample(offsetSymbol))
+            {
+                Rectangle ink = InkBounds(shifted, Color.White);
+                Check(ink.Top > 40, "负偏移把本段移到线的右侧（水平线上整体下移；实测墨迹 y " + ink.Top + "~" + ink.Bottom + "）");
+            }
+        }
+
+
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
         using (var map = new MapControl { Size = new Size(600, 600) })
         {

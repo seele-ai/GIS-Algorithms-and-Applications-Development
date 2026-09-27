@@ -398,7 +398,7 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 | 基本 | `Color` / `Width` | RGBA / 毫米 | 本段颜色与线宽 |
 | 基本 | `OutlineColor` / `OutlineWidth` | RGBA / 毫米 | 边框（casing）颜色与宽度 |
 | 基本 | `TickLength` / `TickColor` | 毫米 / RGBA | 端点**垂直短划线**长度与颜色（0=不画，可拼铁路线） |
-| 可选①偏移 | `OffsetEnabled` + `Offset` | 毫米（正=左、负=右） | 本段整体沿法线平移，不影响其他段 |
+| 可选①偏移 | `OffsetEnabled` + `Offset` | 毫米（**正=线左侧、负=线右侧**） | 本段整体沿法线平移，不影响其他段 |
 | 可选②延长 | `ExtendEnabled` + `ExtendLeft`/`ExtendRight` | 毫米 | 本段两端各自向外延长 |
 | 可选③弧线 | `ArcEnabled` + `ArcAmplitude`/`ArcHalfPeriods` | 毫米 / 个数 | 用半椭圆画成波浪；振幅=垂向半轴，半周期数=本段等分个数，隔段交替方向 |
 
@@ -439,6 +439,8 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 
 - **渲染器驱动**：逐要素调用 `Renderer.GetSymbolFor`，按几何类型分派到点（`FillEllipse`/多边形/自绘十字等）、线（`DrawLines`/`DrawPath`）、面（`FillPath` + 逐条边界 `DrawPath`），复合几何逐部件绘制。
 - **自定义虚线**：把每段按屏幕长度循环铺设，段内先做“延长”，再用 `BuildArcPolyline` 采样出波浪折线，最后沿法线做“偏移”，边框用“先粗后细”的两遍描边实现（casing）。
+  - **偏移的方向约定**：界面与文档统一写作“正=左、负=右”（沿线的**行进方向**看）。屏幕坐标 `y` 轴向下，因此方向 `(dx,dy)` 的**左侧**法线是 `(dy,−dx)`（`BasicGeometryDrawer.NormalOf` 即返回这个左法线）；`Offset` 为正时 `point + Normal * OffsetPx` 把整段推向左侧。
+  - 早前的实现里 `NormalOf` 返回的是右法线 `(−dy,dx)`，导致**偏移量与界面的“正=左”相反**（正偏移画到了线的右下方）；现已统一为左法线，并加了两组自动检查（3.3b）锁死方向：同一水平线上，**正偏移**整体上移、**负偏移**整体下移（屏幕 `y` 向下，上=左、下=右）。
 - **面多边界**：按多边形每条环的顶点法线计算偏移后的新环（外环外扩、洞内缩），再分别用各自的线符号绘制。
 - **注记**：几何绘制完成后统一在最上层绘制；支持旋转、宽高比（FontRatio）与 `UseMask` 描边。
 - **绘制裁剪**：要素外包矩形与视图范围（按符号尺寸外扩）不相交时跳过，避免大图层无谓的路径构建。
