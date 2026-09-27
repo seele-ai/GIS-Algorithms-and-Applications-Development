@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -508,13 +508,17 @@ namespace GIS.Display
             return result;
         }
 
-        // 由 from→to 方向求单位法线
+        // 由 from→to 方向求单位法线。
+        // 约定：取**线的左侧**——屏幕上 y 轴向下，方向 (dx,dy) 的左侧是 (dy,-dx)：
+        // 例如水平向右的线，(dy,-dx) = (0,-1) 即向上（人面向右时左手朝上）。
+        // 这里必须与界面上的“偏移量（毫米，正=左 负=右）”以及 LineOffset 的“正值向线左侧”一致；
+        // 此前写成 (-dy,dx)（即线的右侧），导致“自定义虚线里设置正偏移，线段却往右下方跑”。
         private static PointF NormalOf(PointF to, PointF from)
         {
             float dx = to.X - from.X, dy = to.Y - from.Y;
             float len = (float)Math.Sqrt(dx * dx + dy * dy);
             if (len == 0) return new PointF(0, 0);
-            return new PointF(-dy / len, dx / len);
+            return new PointF(dy / len, -dx / len);
         }
 
         private static Pen LinePen(SimpleLineSymbol symbol, double dpm)
@@ -598,12 +602,21 @@ namespace GIS.Display
             return pen;
         }
 
-        // 单段自定义线符号的最终几何：延长 → 弧线 → 偏移（每步都不影响其他段的位置）
+        // 单段自定义线符号的最终几何：水平偏移 → 延长 → 弧线 → 垂直偏移
+        // （每一步只改本段的绘制结果，段与段之间的“格子”由外层循环的 cursor 决定，因此互不影响）
         private static PointF[] ElementGeometry(PointF[] pts, double[] cum, double from, double to,
             LineDashElement element, double dpm)
         {
             double total = cum[cum.Length - 1];
             double start = from, end = to;
+            // 水平偏移：本段整体沿线平移。本段占有的格子宽度不变，其他段仍从各自的格子开始，
+            // 所以本段让出的那一段就空着（例如 A、B 各 5 毫米，A 水平偏移 2 毫米 → 0~2 空、2~7 A、7~10 B）。
+            if (element.HorizontalOffsetEnabled && Math.Abs(element.HorizontalOffset) > 1e-6)
+            {
+                double shift = ToPixels(element.HorizontalOffset, dpm);
+                start += shift;
+                end += shift;
+            }
             if (element.ExtendEnabled)
             {
                 start -= Math.Max(0, ToPixels(element.ExtendLeft, dpm));
@@ -623,7 +636,7 @@ namespace GIS.Display
             }
             if (result == null || result.Length < 2) return result;
 
-            if (element.OffsetEnabled && Math.Abs(element.Offset) > 1e-6)
+            if (element.OffsetEnabled && Math.Abs(element.Offset) > 1e-6)      // 垂直偏移（不改变本段沿线的位置）
                 result = OffsetPolyline(result, (float)ToPixels(element.Offset, dpm));
             return result;
         }
