@@ -22,7 +22,12 @@ namespace GIS
         private double _Mpu = 1.0;                      //1个地图坐标单位代表的米数，一般为1
         private Int32 _ViewWidth = 800;                 //地图窗口宽度（像素）
         private Int32 _ViewHeight = 600;                //地图窗口高度（像素）
-        private double _MinMapScale = 1;                //允许的最小比例尺倒数（1:1，最大放大倍数）
+        // 允许的最小比例尺倒数（最大放大倍数）。
+        // 不能设成 1:1：经纬度数据的地图单位是度、mpu=1，1:1 时 900 像素的窗口只能看到约 0.24°，
+        // 比这更小的图层（例如几个点、一个小面）就再也放不大了——“缩放至图层”以后要素仍然很小。
+        // 深度放大不会造成绘制溢出：BasicGeometryDrawer 的屏幕坐标统一限幅（±1e6），
+        // 并且视窗外的要素会被范围裁剪跳过。
+        private double _MinMapScale = 1e-6;             //允许的最小比例尺倒数（1:0.000001，最大放大倍数）
         private double _MaxMapScale = 500000000;        //允许的最大比例尺倒数（1:5亿，最大缩小倍数）
 
         #region 构造函数

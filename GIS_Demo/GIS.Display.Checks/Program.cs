@@ -945,6 +945,60 @@ internal static class Program
             }
         }
 
+        // 3.8) 图层右键“缩放至图层”：视野要贴合图层
+        //      回归：此前边距用固定的 1 个地图单位兜底，经纬度数据（范围只有零点几度）会被放大到 2° 以上，
+        //      缩放后要素变得很小；改为相对图层范围留 5% 边距，退化范围交给 SetExtent 兜底。
+        using (var zoomMap = new MapControl { Size = new Size(900, 600) })
+        using (var zoomManager = new LayerManagerControl { Size = new Size(240, 400) })
+        {
+            var zoomHandle = zoomMap.Handle;
+            zoomManager.Bind(zoomMap);
+            var sampleLayers = SampleData.Create().ToList();
+            foreach (Layer layer in sampleLayers) zoomMap.AddLayer(layer);
+            zoomMap.FullExtent();
+            Application.DoEvents();
+
+            bool hasItem = false;
+            double worstFill = 1;
+            string worstName = "", worstDetail = "";
+            var log = new System.Text.StringBuilder();
+            foreach (Layer layer in sampleLayers)
+            {
+                var row = zoomManager.LayerRows.FirstOrDefault(r => ReferenceEquals(r.Layer, layer));
+                if (row == null) continue;
+                hasItem |= ClickContextMenu(row, "缩放至图层");
+                Envelope view = zoomMap.GetExtent(), target = layer.GetEnvelope();
+                double fill = Math.Max(target.Width / view.Width, target.Height / view.Height);
+                log.Append(layer.Name + "→" + (fill * 100).ToString("0") + "% ");
+                if (fill < worstFill)
+                {
+                    worstFill = fill;
+                    worstName = layer.Name;
+                    worstDetail = "图层范围 " + target.Width.ToString("0.0000") + "×" + target.Height.ToString("0.0000")
+                        + "，视野 " + view.Width.ToString("0.0000") + "×" + view.Height.ToString("0.0000");
+                }
+            }
+            Check(hasItem, "图层面板右键菜单里有“缩放至图层”");
+            Check(worstFill > 0.6,
+                "任意图层“缩放至图层”后都占满视野 60% 以上（最小 " + (worstFill * 100).ToString("0") + "%，图层："
+                + worstName + "，" + worstDetail + "；逐层：" + log.ToString().Trim() + "）");
+
+            // 单点图层：视野应收紧到很小的范围（按坐标量级兜底），而不是被固定 1 个地图单位放大成 2°
+            var singleFc = new FeatureClass("单点图层", GeometryTypeConstant.Point);
+            singleFc.Fields.Add(new Field("名称", FieldTypeConstant.Text));
+            var singleFeature = new Feature(new GIS.Point(new Coordinate(116.35, 39.9)), singleFc.Fields);
+            singleFeature.Attributes.SetItem("名称", "单点");
+            singleFc.Add(singleFeature);
+            zoomMap.AddLayer(new Layer("单点图层", singleFc) { Symbol = new SimpleMarkerSymbol() });
+            Application.DoEvents();
+            var singleRow = zoomManager.LayerRows.First(r => r.Layer.Name == "单点图层");
+            ClickContextMenu(singleRow, "缩放至图层");
+            Envelope singleView = zoomMap.GetExtent();
+            Check(singleView.Width < 0.05 && singleView.Height < 0.05,
+                "单点图层“缩放至图层”后视野收紧到 0.05° 以内（实测 " + singleView.Width.ToString("0.0000")
+                + "°，此前固定 1 个地图单位会放大到 2°）");
+        }
+
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
         using (var map = new MapControl { Size = new Size(600, 600) })
         {
@@ -1612,6 +1666,18 @@ internal static class Program
             list.AddRange(AllListBoxes(child));
         }
         return list;
+    }
+
+    // 在图层面板的行上按文字点右键菜单项（“缩放至图层”“修改图层符号/渲染”等）
+    private static bool ClickContextMenu(Control row, string text)
+    {
+        foreach (Control control in AllControls(row))
+        {
+            if (control.ContextMenuStrip == null) continue;
+            foreach (ToolStripItem item in control.ContextMenuStrip.Items)
+                if (item.Text == text) { item.PerformClick(); return true; }
+        }
+        return false;
     }
 
     // 图层面板里是否存在文本完全等于 text 的标签（用于检查图例标题＝绑定字段）

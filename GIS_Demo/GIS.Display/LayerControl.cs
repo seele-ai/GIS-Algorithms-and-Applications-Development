@@ -645,13 +645,22 @@ namespace GIS.Display
             }
         }
 
+        /// <summary>“缩放至图层”四周留的边距比例（相对图层范围大小）。</summary>
+        private const double ZoomMargin = 0.05;
+
+        // 右键“缩放至图层”：把视图对准该图层，让图层尽量占满视野
         private void ZoomToLayer(LayerControl c)
         {
             Envelope env = c.Layer.GetEnvelope();
             if (env.IsNull) return;
-            // 四周留 10% 边距，保证图层完整显示在窗口内
-            double pad = Math.Max(Math.Max(env.Width, env.Height) * 0.1, 1);
-            map.SetExtent(new Envelope(env.MinX - pad, env.MaxX + pad, env.MinY - pad, env.MaxY + pad));
+            // 边距必须**相对图层范围**计算。
+            // 此前这里用 Math.Max(..., 1) 兜底（固定 1 个地图单位）：经纬度数据的范围只有零点几度，
+            // 固定加 1 度会把视野放大到 2 度以上，“缩放至图层”之后要素反而变得很小。
+            // 单点 / 横线 / 竖线这类退化范围由 MapControl.SetExtent 按坐标量级兜底（DegenerateFloor），
+            // 不需要在这里加固定值。
+            double padding = Math.Max(env.Width, env.Height) * ZoomMargin;
+            map.SetExtent(new Envelope(env.MinX - padding, env.MaxX + padding,
+                env.MinY - padding, env.MaxY + padding));
         }
 
         private void ToggleSelectable(LayerControl c)
