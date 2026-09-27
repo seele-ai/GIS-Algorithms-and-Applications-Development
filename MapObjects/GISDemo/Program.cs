@@ -821,12 +821,14 @@ namespace GISDemo
                 && RendererFile.ExtensionFor(GeometryTypeConstant.Polygon) == ".gfs");
             Check("几何类型不匹配时抛出异常", !IsParseOk(sFillLines, RendererFile.PointExtension, sPolyFc));
 
-            // 线段的“偏移 / 延长 / 弧线”三类可选特性也要能存取
+            // 线段的“垂直偏移 / 水平偏移 / 延长 / 弧线”四类可选特性也要能存取
             var sFeature = new LineDashElement { Length = 6, Color = System.Drawing.Color.Red, Width = 0.8 };
             sFeature.OffsetEnabled = true; sFeature.Offset = -1.5;
+            sFeature.HorizontalOffsetEnabled = true; sFeature.HorizontalOffset = 2.5;
             sFeature.ExtendEnabled = true; sFeature.ExtendLeft = 1; sFeature.ExtendRight = 2;
             sFeature.ArcEnabled = true; sFeature.ArcAmplitude = 1.2; sFeature.ArcHalfPeriods = 3;
             Check("线段特性的克隆互不影响", sFeature.Clone().OffsetEnabled
+                && sFeature.Clone().HorizontalOffsetEnabled
                 && AlmostEqual(sFeature.Clone().ArcHalfPeriods, 3, 1e-9));
 
             ClassBreaksRenderer sFeatureClass = new ClassBreaksRenderer();
@@ -835,11 +837,15 @@ namespace GISDemo
             sFeatureLine.DashElements.Add(sFeature.Clone());
             sFeatureClass.AddBreakValue(10, sFeatureLine);
             string[] sFeatureLines = RendererFile.ToLines(sFeatureClass, GeometryTypeConstant.LineString);
-            Check("线符号文件写出线段特性字段", Array.IndexOf(sFeatureLines, "虚线元素数=1") > 0);
+            string sFeatureElement = Array.Find(sFeatureLines, line => line.StartsWith("虚线元素0=", StringComparison.Ordinal));
+            Check("线符号文件写出线段特性字段（7 基本 + 10 可选 = 17 个字段）",
+                Array.IndexOf(sFeatureLines, "虚线元素数=1") > 0
+                && sFeatureElement != null && sFeatureElement.Substring(sFeatureElement.IndexOf('=') + 1).Split(';').Length == 17);
             var sFeatureBack = RendererFile.Parse(sFeatureLines, RendererFile.LineExtension, null) as ClassBreaksRenderer;
             var sFeatureEl = ((SimpleLineSymbol)sFeatureBack.GetSymbol(0)).DashElements[0];
-            Check("线符号文件往返后线段的偏移/延长/弧线一致",
+            Check("线符号文件往返后线段的垂直偏移/水平偏移/延长/弧线一致",
                 sFeatureEl.OffsetEnabled && AlmostEqual(sFeatureEl.Offset, -1.5, 1e-9)
+                && sFeatureEl.HorizontalOffsetEnabled && AlmostEqual(sFeatureEl.HorizontalOffset, 2.5, 1e-9)
                 && sFeatureEl.ExtendEnabled && AlmostEqual(sFeatureEl.ExtendLeft, 1, 1e-9)
                 && AlmostEqual(sFeatureEl.ExtendRight, 2, 1e-9)
                 && sFeatureEl.ArcEnabled && AlmostEqual(sFeatureEl.ArcAmplitude, 1.2, 1e-9)
@@ -854,8 +860,23 @@ namespace GISDemo
             }, RendererFile.LineExtension, null);
             var sLegacyEl = ((SimpleLineSymbol)((SimpleRenderer)sLegacy).Symbol).DashElements[0];
             Check("旧版线符号文件仍可读取（特性缺省关闭）",
-                !sLegacyEl.OffsetEnabled && !sLegacyEl.ExtendEnabled && !sLegacyEl.ArcEnabled
+                !sLegacyEl.OffsetEnabled && !sLegacyEl.HorizontalOffsetEnabled
+                && !sLegacyEl.ExtendEnabled && !sLegacyEl.ArcEnabled
                 && AlmostEqual(sLegacyEl.Length, 5, 1e-9));
+
+            // 加了水平偏移之前的 15 字段文件（含垂直偏移/延长/弧线）也要照样读，只是水平偏移缺省关闭
+            var sPrevious = RendererFile.Parse(new[]
+            {
+                "GISRENDERER/1", "几何类型=线", "渲染类型=单一符号", "[符号]",
+                "线符号=自定义虚线", "颜色=0,0,0,255", "线宽=0.5", "虚线元素数=1",
+                "虚线元素0=5;255,0,0,255;0.5;0,0,0,0;0;0;0,0,0,0;1;2;1;1;2;1;1.2;3",
+                "偏移线数=0"
+            }, RendererFile.LineExtension, null);
+            var sPreviousEl = ((SimpleLineSymbol)((SimpleRenderer)sPrevious).Symbol).DashElements[0];
+            Check("15 字段（无水平偏移）的上一版线符号文件仍可读取",
+                sPreviousEl.OffsetEnabled && AlmostEqual(sPreviousEl.Offset, 2, 1e-9)
+                && sPreviousEl.ExtendEnabled && sPreviousEl.ArcEnabled
+                && !sPreviousEl.HorizontalOffsetEnabled && AlmostEqual(sPreviousEl.HorizontalOffset, 0, 1e-9));
 
             // 默认符号（唯一值/分级渲染中“未匹配值”使用的符号）也要能存取：
             // 曾经完全没有写入文件，导致读回后默认符号为 null，渲染设置里既看不到也设不了，

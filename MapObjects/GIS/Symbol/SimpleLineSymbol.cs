@@ -22,8 +22,9 @@ namespace GIS
     /// <summary>
     /// 自定义虚线的一个“线段元素”。若干元素按顺序循环排列构成整条线的图案。
     /// 可设置线长、颜色、线宽、边框（casing）、以及在端点绘制垂直于线段的短划线（TickLength）。
-    /// 另外每个线段还可以单独启用三类特性（点击选框后才生效，且不影响其他线段的位置）：
-    /// 偏移（整体向左/右平移）、延长（两端各自向外延长）、弧线（画成由半椭圆组成的波浪）。
+    /// 另外每个线段还可以单独启用四类特性（点击选框后才生效，且都不改变其他线段的位置）：
+    /// 垂直偏移（垂直于线方向整体平移）、水平偏移（沿线方向平移，本段让出的位置成为间隙）、
+    /// 延长（两端各自向外延长）、弧线（画成由半椭圆组成的波浪）。
     /// </summary>
     public class LineDashElement
     {
@@ -48,11 +49,22 @@ namespace GIS
         /// <summary>端点短划线的颜色（默认与线段颜色一致）</summary>
         public Color TickColor = Color.Transparent;
 
-        /// <summary>是否启用偏移</summary>
+        /// <summary>是否启用垂直偏移（垂直于线方向平移本段，线仍与原来平行）</summary>
         public bool OffsetEnabled = false;
 
-        /// <summary>偏移量（单位毫米，正值向左、负值向右）：启用后本段整体平移，不影响其他段</summary>
+        /// <summary>垂直偏移量（单位毫米，正值向线左侧、负值向线右侧）：启用后本段整体平移，不影响其他段</summary>
         public double Offset = 0;
+
+        /// <summary>
+        /// 是否启用水平偏移（沿线的方向平移本段）。本段按图案占有的“格子”宽度不变，
+        /// 只是整体沿线的终点方向（正值）或起点方向（负值）挪动，因此本段让出的那一段成为间隙，
+        /// 后续线段仍落在各自的格子上（例如 A、B 各 5 毫米，把 A 水平偏移 2 毫米后：
+        /// 0~2 毫米无线段、2~7 毫米为 A、5~10 毫米仍是 B）。
+        /// </summary>
+        public bool HorizontalOffsetEnabled = false;
+
+        /// <summary>水平偏移量（单位毫米，正值向线的终点方向、负值向线的起点方向）</summary>
+        public double HorizontalOffset = 0;
 
         /// <summary>是否启用在两端延长</summary>
         public bool ExtendEnabled = false;
@@ -85,6 +97,8 @@ namespace GIS
                 TickColor = TickColor,
                 OffsetEnabled = OffsetEnabled,
                 Offset = Offset,
+                HorizontalOffsetEnabled = HorizontalOffsetEnabled,
+                HorizontalOffset = HorizontalOffset,
                 ExtendEnabled = ExtendEnabled,
                 ExtendLeft = ExtendLeft,
                 ExtendRight = ExtendRight,

@@ -999,7 +999,7 @@ internal static class Program
                 + "°，此前固定 1 个地图单位会放大到 2°）");
         }
 
-        // 3.3b) 单段“偏移”的方向：正偏移把本段移到线的左侧（水平线上 = 向上），负偏移移到右侧（向下）
+        // 3.3b) 单段“垂直偏移”的方向：正偏移把本段移到线的左侧（水平线上 = 向上），负偏移移到右侧（向下）
         {
             var offsetSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
             offsetSymbol.DashElements.Add(new LineDashElement
@@ -1019,6 +1019,50 @@ internal static class Program
                 Rectangle ink = InkBounds(shifted, Color.White);
                 Check(ink.Top > 40, "负偏移把本段移到线的右侧（水平线上整体下移；实测墨迹 y " + ink.Top + "~" + ink.Bottom + "）");
             }
+        }
+
+        // 3.3c) 单段“水平偏移”：本段沿线的方向平移，段长不变，其他段仍落在各自的格子上
+        //       举例：A、B 各 5 毫米，把 A 水平偏移 2 毫米 → 开头 2 毫米空着、A 落在 2~7 毫米、B 仍在 5~10 毫米。
+        {
+            var shiftSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            shiftSymbol.DashElements.Add(new LineDashElement { Length = 5, Color = Color.Black, Width = 1 });
+            shiftSymbol.DashElements.Add(new LineDashElement { Length = 5, Color = Color.Red, Width = 1 });
+            using (Bitmap plain = DrawLineSample(shiftSymbol))
+            {
+                Rectangle plainInk = InkBounds(plain, Color.White);
+                Rectangle plainRed = ColorBounds(plain, Color.Red, 60);
+                int plainRedStart, plainRedRun;
+                FirstColorRun(plain, 40, Color.Red, 60, out plainRedStart, out plainRedRun);
+                shiftSymbol.DashElements[0].HorizontalOffsetEnabled = true;
+                shiftSymbol.DashElements[0].HorizontalOffset = 2;          // 2 毫米 ≈ 7.6 像素
+                using (Bitmap shifted = DrawLineSample(shiftSymbol))
+                {
+                    Rectangle shiftedInk = InkBounds(shifted, Color.White);
+                    int gap = shiftedInk.Left - plainInk.Left;
+                    Check(gap >= 6 && gap <= 10,
+                        "水平偏移把本段沿线挪开 2 毫米，让出的位置成为间隙（A/B 各 5 毫米，起点空出 "
+                        + gap + " 像素 ≈ 2 毫米）");
+                    int shiftedRedStart, shiftedRedRun;
+                    FirstColorRun(shifted, 40, Color.Red, 60, out shiftedRedStart, out shiftedRedRun);
+                    Check(shiftedRedStart == plainRedStart,
+                        "水平偏移不改变其他线段的位置（后一段红色仍从第 " + shiftedRedStart
+                        + " 像素开始，即线的 5 毫米处，与未偏移时完全一致；它尾部的可见长度会随前一段让出的间隙变化）");
+                }
+            }
+
+            // 只有一段可见（后一段为间隙）时，可以直接量出“段长不变、只是整体沿线平移”
+            var onlySymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            onlySymbol.DashElements.Add(new LineDashElement { Length = 5, Color = Color.Black, Width = 1 });
+            onlySymbol.DashElements.Add(new LineDashElement { Length = 5, Color = Color.Transparent, Width = 0.01 });
+            int plainStart, plainRun;
+            using (Bitmap plain = DrawLineSample(onlySymbol)) FirstInkRun(plain, 40, out plainStart, out plainRun);
+            onlySymbol.DashElements[0].HorizontalOffsetEnabled = true;
+            onlySymbol.DashElements[0].HorizontalOffset = 2;
+            int shiftedStart, shiftedRun;
+            using (Bitmap shifted = DrawLineSample(onlySymbol)) FirstInkRun(shifted, 40, out shiftedStart, out shiftedRun);
+            Check(Math.Abs(shiftedRun - plainRun) <= 2 && shiftedStart - plainStart >= 6 && shiftedStart - plainStart <= 10,
+                "水平偏移只挪位置不改段长（可见段仍长 " + shiftedRun + " 像素，与未偏移的 " + plainRun
+                + " 像素一致；起点右移 " + (shiftedStart - plainStart) + " 像素）");
         }
 
 
@@ -1399,11 +1443,12 @@ internal static class Program
             dialog.Hide();
         }
 
-        // 5c) “设置线段”窗口宽度：新增的偏移/延长/弧线三组参数必须完整显示，不能被截断
+        // 5c) “设置线段”窗口宽度：垂直偏移/水平偏移/延长/弧线四组参数必须完整显示，不能被截断
         var featureElement = new LineDashElement
         {
             Length = 6, Width = 1.2, OutlineWidth = 0.3, TickLength = 1.5,
             OffsetEnabled = true, Offset = -2.5,
+            HorizontalOffsetEnabled = true, HorizontalOffset = 2,
             ExtendEnabled = true, ExtendLeft = 1, ExtendRight = 2,
             ArcEnabled = true, ArcAmplitude = 1.2, ArcHalfPeriods = 3
         };
@@ -1414,7 +1459,7 @@ internal static class Program
             segment.Show();
             Application.DoEvents();
             Check(segment.ClientSize.Width >= DashElementEditor.EditorWidth - 40,
-                "“设置线段”窗口已按新增的三组参数加宽");
+                "“设置线段”窗口已按新增的四组参数加宽");
             int overflow = 0;
             foreach (Control control in AllControls(segment))
             {
@@ -1425,7 +1470,7 @@ internal static class Program
             Check(overflow == 0, "“设置线段”窗口内所有参数控件都完整落在可视宽度内");
             int enabledBoxes = 0;
             foreach (NumericUpDown number in AllNumerics(segment)) if (number.Enabled) enabledBoxes++;
-            Check(enabledBoxes == 9, "三组参数全部启用时9个数值框（4基础+偏移1+延长2+弧线2）都可编辑");
+            Check(enabledBoxes == 10, "四组参数全部启用时10个数值框（4基础+垂直偏移1+水平偏移1+延长2+弧线2）都可编辑");
             int unreadable = 0;
             foreach (Button button in AllButtons(segment))
             {
@@ -1458,8 +1503,9 @@ internal static class Program
                     if (item.ToString().Contains("端点竖线")) dashBox = box;
             Check(dashBox != null && dashBox.Items.Count == 2, "线符号面板列出自定义虚线的每一段");
             string described = dashBox.Items[0].ToString();
-            Check(described.Contains("偏移-2.5") && described.Contains("延长1.0/2.0") && described.Contains("弧线1.2"),
-                "虚线列表显示该段设置过的偏移/延长/弧线参数");
+            Check(described.Contains("垂直偏移-2.5") && described.Contains("水平偏移+2.0")
+                && described.Contains("延长1.0/2.0") && described.Contains("弧线1.2"),
+                "虚线列表显示该段设置过的垂直偏移/水平偏移/延长/弧线参数");
             Check(!dashBox.Items[1].ToString().Contains("偏移") && !dashBox.Items[1].ToString().Contains("延长")
                 && !dashBox.Items[1].ToString().Contains("弧线"),
                 "没有设置这些参数的虚线段不显示多余信息");
@@ -1511,7 +1557,7 @@ internal static class Program
         Check(geoLayer.FeatureClass.ProjectionCS == null, "切回经纬度后图层记录的坐标系同步更新");
     }
 
-    // 构造一段自定义虚线：可见段 + 间隙段；可选启用 弧线/偏移/延长 之一
+    // 构造一段自定义虚线：可见段 + 间隙段；可选启用 弧线/垂直偏移/延长 之一
     private static SimpleLineSymbol DashLine(bool arc, bool offset, bool extend)
     {
         var line = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
@@ -1559,6 +1605,30 @@ internal static class Program
         for (int dx = from; dx <= to; dx++)
             if (InkAt(bitmap, cx + dx, cy)) return true;
         return false;
+    }
+
+    // 沿给定行取第一段连续的“有墨”像素的起点与长度（用于量虚线段实际画出来的长度）
+    private static void FirstInkRun(Bitmap bitmap, int y, out int start, out int length)
+    {
+        start = -1; length = 0;
+        int x = 0;
+        while (x < bitmap.Width && !InkAt(bitmap, x, y)) x++;
+        if (x >= bitmap.Width) return;
+        start = x;
+        while (x < bitmap.Width && InkAt(bitmap, x, y)) { x++; length++; }
+    }
+
+    // 沿给定行取第一段连续的“指定颜色”像素的起点与长度（用于判断某一段虚线的位置是否变化）
+    private static void FirstColorRun(Bitmap bitmap, int y, Color expected, int tol, out int start, out int length)
+    {
+        start = -1; length = 0;
+        Func<Color, bool> isColor = c =>
+            Math.Abs(c.R - expected.R) <= tol && Math.Abs(c.G - expected.G) <= tol && Math.Abs(c.B - expected.B) <= tol;
+        int x = 0;
+        while (x < bitmap.Width && !isColor(bitmap.GetPixel(x, y))) x++;
+        if (x >= bitmap.Width) return;
+        start = x;
+        while (x < bitmap.Width && isColor(bitmap.GetPixel(x, y))) { x++; length++; }
     }
 
     // 统计与指定颜色接近（容差 tol）的像素个数，用于注记的文字颜色 / 描边颜色

@@ -602,12 +602,21 @@ namespace GIS.Display
             return pen;
         }
 
-        // 单段自定义线符号的最终几何：延长 → 弧线 → 偏移（每步都不影响其他段的位置）
+        // 单段自定义线符号的最终几何：水平偏移 → 延长 → 弧线 → 垂直偏移
+        // （每一步只改本段的绘制结果，段与段之间的“格子”由外层循环的 cursor 决定，因此互不影响）
         private static PointF[] ElementGeometry(PointF[] pts, double[] cum, double from, double to,
             LineDashElement element, double dpm)
         {
             double total = cum[cum.Length - 1];
             double start = from, end = to;
+            // 水平偏移：本段整体沿线平移。本段占有的格子宽度不变，其他段仍从各自的格子开始，
+            // 所以本段让出的那一段就空着（例如 A、B 各 5 毫米，A 水平偏移 2 毫米 → 0~2 空、2~7 A、7~10 B）。
+            if (element.HorizontalOffsetEnabled && Math.Abs(element.HorizontalOffset) > 1e-6)
+            {
+                double shift = ToPixels(element.HorizontalOffset, dpm);
+                start += shift;
+                end += shift;
+            }
             if (element.ExtendEnabled)
             {
                 start -= Math.Max(0, ToPixels(element.ExtendLeft, dpm));
@@ -627,7 +636,7 @@ namespace GIS.Display
             }
             if (result == null || result.Length < 2) return result;
 
-            if (element.OffsetEnabled && Math.Abs(element.Offset) > 1e-6)
+            if (element.OffsetEnabled && Math.Abs(element.Offset) > 1e-6)      // 垂直偏移（不改变本段沿线的位置）
                 result = OffsetPolyline(result, (float)ToPixels(element.Offset, dpm));
             return result;
         }

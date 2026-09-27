@@ -240,7 +240,7 @@ namespace GIS.Display.UI
 
         /// <summary>
         /// 把一段虚线图案写成面板列表里的一行文字：基本的长/宽/边框/端点竖线之外，
-        /// 该段启用过的“偏移 / 延长 / 弧线”参数也会显示出来（未启用就不显示），
+        /// 该段启用过的“垂直偏移 / 水平偏移 / 延长 / 弧线”参数也会显示出来（未启用就不显示），
         /// 文字保持紧凑，配合 <see cref="PanelWidth"/> 与横向滚动条不会超出面板宽度。
         /// </summary>
         public static string DescribeDashElement(int index, LineDashElement element)
@@ -249,7 +249,9 @@ namespace GIS.Display.UI
             text.AppendFormat("[{0}] 长{1:F1}mm 宽{2:F1}mm 边框{3:F1}mm 端点竖线{4:F1}mm",
                 index + 1, element.Length, element.Width, element.OutlineWidth, element.TickLength);
             if (element.OffsetEnabled)
-                text.AppendFormat("  偏移{0:+0.0;-0.0;0.0}mm", element.Offset);
+                text.AppendFormat("  垂直偏移{0:+0.0;-0.0;0.0}mm", element.Offset);
+            if (element.HorizontalOffsetEnabled)
+                text.AppendFormat("  水平偏移{0:+0.0;-0.0;0.0}mm", element.HorizontalOffset);
             if (element.ExtendEnabled)
                 text.AppendFormat("  延长{0:F1}/{1:F1}mm", element.ExtendLeft, element.ExtendRight);
             if (element.ArcEnabled)
@@ -294,8 +296,10 @@ namespace GIS.Display.UI
         private readonly NumericUpDown width = Num(0.05m, 20m, 0.05m);
         private readonly NumericUpDown outlineWidth = Num(0m, 20m, 0.05m);
         private readonly NumericUpDown tickLength = Num(0m, 20m, 0.1m);
-        private readonly CheckBox offsetCheck = new CheckBox { Text = "偏移（本段整体左右平移）", AutoSize = true };
+        private readonly CheckBox offsetCheck = new CheckBox { Text = "垂直偏移（本段垂直于线方向整体平移，仍与线平行）", AutoSize = true };
         private readonly NumericUpDown offset = Num(-50m, 50m, 0.1m);
+        private readonly CheckBox horizontalCheck = new CheckBox { Text = "水平偏移（本段沿线方向平移，其他段位置不变）", AutoSize = true };
+        private readonly NumericUpDown horizontal = Num(-100m, 100m, 0.1m);
         private readonly CheckBox extendCheck = new CheckBox { Text = "线的延长（本段两端各自向外延长）", AutoSize = true };
         private readonly NumericUpDown extendLeft = Num(0m, 100m, 0.1m);
         private readonly NumericUpDown extendRight = Num(0m, 100m, 0.1m);
@@ -307,6 +311,7 @@ namespace GIS.Display.UI
         private void EnableFeatureControls()
         {
             offset.Enabled = offsetCheck.Checked;
+            horizontal.Enabled = horizontalCheck.Checked;
             extendLeft.Enabled = extendRight.Enabled = extendCheck.Checked;
             arcAmplitude.Enabled = arcHalfPeriods.Enabled = arcCheck.Checked;
         }
@@ -343,37 +348,45 @@ namespace GIS.Display.UI
             grid.Controls.Add(new Label { Text = "端点垂线长度（毫米，0=无）", AutoSize = true }, 0, 5); grid.Controls.Add(tickLength, 1, 5);
             grid.Controls.Add(new Label { Text = "端点垂线颜色", AutoSize = true }, 0, 6); grid.Controls.Add(tickBtn, 1, 6);
 
-            // 三类可选特性：勾选后才可进一步设置（与“自定义虚线”的交互方式一致）
+            // 四类可选特性：勾选后才可进一步设置（与“自定义虚线”的交互方式一致）
             grid.Controls.Add(offsetCheck, 0, 7);
             grid.SetColumnSpan(offsetCheck, 2);
-            grid.Controls.Add(new Label { Text = "        偏移量（毫米，正=左 负=右）", AutoSize = true }, 0, 8);
+            grid.Controls.Add(new Label { Text = "        垂直偏移量（毫米，正=线左侧 负=线右侧）", AutoSize = true }, 0, 8);
             grid.Controls.Add(offset, 1, 8);
-            grid.Controls.Add(extendCheck, 0, 9);
+            grid.Controls.Add(horizontalCheck, 0, 9);
+            grid.SetColumnSpan(horizontalCheck, 2);
+            grid.Controls.Add(new Label { Text = "        水平偏移量（毫米，正=向线的终点方向 负=向起点方向）", AutoSize = true }, 0, 10);
+            grid.Controls.Add(horizontal, 1, 10);
+            grid.Controls.Add(extendCheck, 0, 11);
             grid.SetColumnSpan(extendCheck, 2);
-            grid.Controls.Add(new Label { Text = "        向左延长（毫米）", AutoSize = true }, 0, 10);
-            grid.Controls.Add(extendLeft, 1, 10);
-            grid.Controls.Add(new Label { Text = "        向右延长（毫米）", AutoSize = true }, 0, 11);
-            grid.Controls.Add(extendRight, 1, 11);
-            grid.Controls.Add(arcCheck, 0, 12);
+            grid.Controls.Add(new Label { Text = "        向左延长（毫米）", AutoSize = true }, 0, 12);
+            grid.Controls.Add(extendLeft, 1, 12);
+            grid.Controls.Add(new Label { Text = "        向右延长（毫米）", AutoSize = true }, 0, 13);
+            grid.Controls.Add(extendRight, 1, 13);
+            grid.Controls.Add(arcCheck, 0, 14);
             grid.SetColumnSpan(arcCheck, 2);
-            grid.Controls.Add(new Label { Text = "        振幅（毫米）", AutoSize = true }, 0, 13);
-            grid.Controls.Add(arcAmplitude, 1, 13);
-            grid.Controls.Add(new Label { Text = "        半周期数", AutoSize = true }, 0, 14);
-            grid.Controls.Add(arcHalfPeriods, 1, 14);
+            grid.Controls.Add(new Label { Text = "        振幅（毫米）", AutoSize = true }, 0, 15);
+            grid.Controls.Add(arcAmplitude, 1, 15);
+            grid.Controls.Add(new Label { Text = "        半周期数", AutoSize = true }, 0, 16);
+            grid.Controls.Add(arcHalfPeriods, 1, 16);
 
             offsetCheck.Checked = element.OffsetEnabled;
+            horizontalCheck.Checked = element.HorizontalOffsetEnabled;
             extendCheck.Checked = element.ExtendEnabled;
             arcCheck.Checked = element.ArcEnabled;
             offsetCheck.CheckedChanged += (s, e) => { element.OffsetEnabled = offsetCheck.Checked; EnableFeatureControls(); };
+            horizontalCheck.CheckedChanged += (s, e) => { element.HorizontalOffsetEnabled = horizontalCheck.Checked; EnableFeatureControls(); };
             extendCheck.CheckedChanged += (s, e) => { element.ExtendEnabled = extendCheck.Checked; EnableFeatureControls(); };
             arcCheck.CheckedChanged += (s, e) => { element.ArcEnabled = arcCheck.Checked; EnableFeatureControls(); };
             SetValue(offset, element.Offset);
+            SetValue(horizontal, element.HorizontalOffset);
             SetValue(extendLeft, element.ExtendLeft);
             SetValue(extendRight, element.ExtendRight);
             SetValue(arcAmplitude, element.ArcAmplitude);
             SetValue(arcHalfPeriods, element.ArcHalfPeriods);
             EnableFeatureControls();
             offset.ValueChanged += (s, e) => element.Offset = (double)offset.Value;
+            horizontal.ValueChanged += (s, e) => element.HorizontalOffset = (double)horizontal.Value;
             extendLeft.ValueChanged += (s, e) => element.ExtendLeft = (double)extendLeft.Value;
             extendRight.ValueChanged += (s, e) => element.ExtendRight = (double)extendRight.Value;
             arcAmplitude.ValueChanged += (s, e) => element.ArcAmplitude = (double)arcAmplitude.Value;

@@ -200,7 +200,8 @@ namespace GIS
                 for (int i = 0; i < line.DashElements.Count; i++)
                 {
                     // 元素内各属性以分号分隔（颜色本身用逗号分隔，避免歧义）。
-                    // 前 7 项为基本属性；后 8 项为可选特性：偏移(启用,值)、延长(启用,左,右)、弧线(启用,振幅,半周期数)。
+                    // 前 7 项为基本属性；后 10 项为可选特性：垂直偏移(启用,值)、水平偏移(启用,值)、
+                    // 延长(启用,左,右)、弧线(启用,振幅,半周期数)。
                     LineDashElement element = line.DashElements[i];
                     lines.Add(prefix + "虚线元素" + i + "=" + string.Join(";", new[]
                     {
@@ -209,7 +210,8 @@ namespace GIS
                         Num(element.TickLength), ColorText(element.TickColor),
                         element.OffsetEnabled ? "1" : "0", Num(element.Offset),
                         element.ExtendEnabled ? "1" : "0", Num(element.ExtendLeft), Num(element.ExtendRight),
-                        element.ArcEnabled ? "1" : "0", Num(element.ArcAmplitude), Num(element.ArcHalfPeriods)
+                        element.ArcEnabled ? "1" : "0", Num(element.ArcAmplitude), Num(element.ArcHalfPeriods),
+                        element.HorizontalOffsetEnabled ? "1" : "0", Num(element.HorizontalOffset)
                     }));
                 }
             }
@@ -400,7 +402,7 @@ namespace GIS
                         element.TickLength = ParseDouble(parts[5], 0);
                         element.TickColor = ParseColor(parts[6], Color.Transparent);
                     }
-                    // 后 8 项为可选特性（旧文件没有这些字段，缺省即“未启用”）
+                    // 后 10 项为可选特性（旧文件没有这些字段，缺省即“未启用”）
                     if (parts.Length >= 15)
                     {
                         element.OffsetEnabled = parts[7] == "1";
@@ -411,6 +413,12 @@ namespace GIS
                         element.ArcEnabled = parts[12] == "1";
                         element.ArcAmplitude = ParseDouble(parts[13], 1);
                         element.ArcHalfPeriods = ParseDouble(parts[14], 1);
+                    }
+                    // 水平偏移是最后加的特性，单独判定，因此 15 字段的旧文件（含垂直偏移/延长/弧线）照样能读
+                    if (parts.Length >= 17)
+                    {
+                        element.HorizontalOffsetEnabled = parts[15] == "1";
+                        element.HorizontalOffset = ParseDouble(parts[16], 0);
                     }
                     line.DashElements.Add(element);
                 }
