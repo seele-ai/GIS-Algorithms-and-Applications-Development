@@ -67,14 +67,87 @@ ORDER BY table_schema, table_name;";
             return LoadFeatureClass(tableName, out ignored, schemaName);
         }
 
+        /// <summary>
+        /// 只读加载空间图层。该入口不要求主键，因此可用于无主键空间表和空间视图。
+        /// </summary>
+        public PostGISReadOnlyLayerContext LoadReadOnlyLayerContext(string tableName,
+            string schemaName = PostGISSchemaMapper.DefaultSchemaName)
+        {
+            GeometryMetadata geometry = ReadGeometryMetadata(tableName, schemaName);
+            List<string> warnings = new List<string>();
+            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName, null, warnings);
+            FeatureClass featureClass = CreateFeatureClass(tableName, geometry.GeometryType, fields);
+            featureClass.Srid = geometry.Srid;
+            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, false, null);
+
+            using (NpgsqlConnection connection = _database.CreateConnection())
+            {
+                connection.Open();
+                using (NpgsqlCommand command = new NpgsqlCommand(sql, connection))
+                using (NpgsqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                        featureClass.Add(ReadFeature(reader, 0, featureClass));
+                }
+            }
+
+            Layer layer = new Layer(tableName, featureClass);
+            PostGISLayerSource source = new PostGISLayerSource(
+                schemaName, tableName, geometry.ColumnName, null, geometry.Srid);
+            return new PostGISReadOnlyLayerContext(layer, source, warnings);
+        }
+
+        /// <summary>
+        /// 加载可加入地图的 Layer，并保留数据库来源和 Feature 主键映射。
+        /// </summary>
+        public PostGISLayerContext LoadLayerContext(string tableName,
+            string schemaName = PostGISSchemaMapper.DefaultSchemaName)
+        {
+            GeometryMetadata geometry = ReadGeometryMetadata(tableName, schemaName);
+            PrimaryKeyMetadata primaryKey = ReadPrimaryKeyMetadata(tableName, schemaName);
+            EnsureEditableKeyType(tableName, schemaName, primaryKey);
+            string keyColumnName = primaryKey.ColumnName;
+            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName, keyColumnName, null);
+            FeatureClass featureClass = CreateFeatureClass(tableName, geometry.GeometryType, fields);
+            featureClass.Srid = geometry.Srid;
+            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, true, null, keyColumnName);
+            List<PostGISFeatureRecord> records = new List<PostGISFeatureRecord>();
+
+            using (NpgsqlConnection connection = _database.CreateConnection())
+            {
+                connection.Open();
+                using (NpgsqlCommand command = new NpgsqlCommand(sql, connection))
+                using (NpgsqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        long id = Convert.ToInt64(reader.GetValue(0));
+                        Feature feature = ReadFeature(reader, 1, featureClass);
+                        featureClass.Add(feature);
+                        records.Add(new PostGISFeatureRecord(id, feature));
+                    }
+                }
+            }
+
+            Layer layer = new Layer(tableName, featureClass);
+            PostGISLayerSource source = new PostGISLayerSource(
+                schemaName, tableName, geometry.ColumnName,
+                keyColumnName, geometry.Srid);
+            return new PostGISLayerContext(layer, source, records);
+        }
+
         /// <summary>读取数据库主键及 Feature，用于 UPDATE/DELETE 的稳定对应。</summary>
         public List<PostGISFeatureRecord> LoadFeatureRecords(string tableName,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
             GeometryMetadata geometry = ReadGeometryMetadata(tableName, schemaName);
-            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName);
+            PrimaryKeyMetadata primaryKey = ReadPrimaryKeyMetadata(tableName, schemaName);
+            EnsureEditableKeyType(tableName, schemaName, primaryKey);
+            string keyColumnName = primaryKey.ColumnName;
+            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName, keyColumnName, null);
             FeatureClass featureClass = CreateFeatureClass(tableName, geometry.GeometryType, fields);
-            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, true, null);
+            featureClass.Srid = geometry.Srid;
+            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, true, null, keyColumnName);
             List<PostGISFeatureRecord> records = new List<PostGISFeatureRecord>();
 
             using (NpgsqlConnection connection = _database.CreateConnection())
@@ -102,8 +175,10 @@ ORDER BY table_schema, table_name;";
             IList<NpgsqlParameter> parameters)
         {
             GeometryMetadata geometry = ReadGeometryMetadata(tableName, schemaName);
-            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName);
+            // 这是只读空间查询，SELECT 不包含主键列，因此不能默认排除名为 id 的普通属性字段。
+            Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName, null);
             FeatureClass featureClass = CreateFeatureClass(tableName, geometry.GeometryType, fields);
+            featureClass.Srid = geometry.Srid;
             string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, false, whereSql);
 
             using (NpgsqlConnection connection = _database.CreateConnection())
@@ -132,7 +207,62 @@ ORDER BY table_schema, table_name;";
             return ReadGeometryMetadata(tableName, schemaName).ColumnName;
         }
 
-        private Fields ReadFieldsInternal(string tableName, string schemaName, string geometryColumnName)
+        /// <summary>读取空间表的单列主键及数据库类型；复合主键暂不支持。</summary>
+        internal string ReadPrimaryKeyColumn(string tableName, string schemaName)
+        {
+            return ReadPrimaryKeyMetadata(tableName, schemaName).ColumnName;
+        }
+
+        private PrimaryKeyMetadata ReadPrimaryKeyMetadata(string tableName, string schemaName)
+        {
+            const string sql = @"
+SELECT kcu.column_name, c.data_type, c.udt_name
+FROM information_schema.table_constraints tc
+JOIN information_schema.key_column_usage kcu
+  ON tc.constraint_name = kcu.constraint_name
+ AND tc.table_schema = kcu.table_schema
+ AND tc.table_name = kcu.table_name
+JOIN information_schema.columns c
+  ON c.table_schema = kcu.table_schema
+ AND c.table_name = kcu.table_name
+ AND c.column_name = kcu.column_name
+WHERE tc.constraint_type = 'PRIMARY KEY'
+  AND tc.table_schema = @schema
+  AND tc.table_name = @table
+ORDER BY kcu.ordinal_position;";
+            List<PrimaryKeyMetadata> columns = new List<PrimaryKeyMetadata>();
+            using (NpgsqlConnection connection = _database.CreateConnection())
+            {
+                connection.Open();
+                using (NpgsqlCommand command = new NpgsqlCommand(sql, connection))
+                {
+                    command.Parameters.Add("schema", NpgsqlDbType.Text).Value = schemaName;
+                    command.Parameters.Add("table", NpgsqlDbType.Text).Value = tableName;
+                    using (NpgsqlDataReader reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            columns.Add(new PrimaryKeyMetadata
+                            {
+                                ColumnName = reader.GetString(0),
+                                DataType = reader.GetString(1),
+                                UdtName = reader.GetString(2)
+                            });
+                        }
+                    }
+                }
+            }
+            if (columns.Count == 0)
+                throw new NotSupportedException("空间表 " + schemaName + "." + tableName + " 没有主键，无法进行稳定编辑。");
+            if (columns.Count > 1)
+                throw new NotSupportedException("空间表 " + schemaName + "." + tableName + " 使用复合主键，当前版本暂不支持。");
+            return columns[0];
+        }
+
+        private Fields ReadFieldsInternal(string tableName, string schemaName,
+            string geometryColumnName,
+            string keyColumnName = PostGISSchemaMapper.DefaultIdColumnName,
+            IList<string> warnings = null)
         {
             const string sql = @"
 SELECT column_name, data_type, udt_name
@@ -153,9 +283,23 @@ ORDER BY ordinal_position;";
                         {
                             string name = reader.GetString(0);
                             if (string.Equals(name, geometryColumnName, StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(name, PostGISSchemaMapper.DefaultIdColumnName, StringComparison.OrdinalIgnoreCase))
+                                string.Equals(name, keyColumnName, StringComparison.OrdinalIgnoreCase))
                                 continue;
-                            fields.Add(new Field(name, MapPostgreSqlType(reader.GetString(1), reader.GetString(2))));
+                            FieldTypeConstant fieldType;
+                            string fieldWarning;
+                            if (!TryMapPostgreSqlType(reader.GetString(1), reader.GetString(2),
+                                out fieldType, out fieldWarning))
+                            {
+                                if (warnings == null)
+                                    throw new NotSupportedException("表 " + schemaName + "." + tableName +
+                                        " 的字段 " + name + " 类型为 " + reader.GetString(1) +
+                                        " (" + reader.GetString(2) + ")，当前 GIS 数据结构不支持。" );
+                                warnings.Add("已跳过字段 " + name + "：" + fieldWarning);
+                                continue;
+                            }
+                            fields.Add(new Field(name, fieldType));
+                            if (!string.IsNullOrEmpty(fieldWarning) && warnings != null)
+                                warnings.Add("字段 " + name + "：" + fieldWarning);
                         }
                     }
                 }
@@ -192,7 +336,15 @@ ORDER BY a.attnum;";
                         while (reader.Read())
                         {
                             string formattedType = reader.GetString(1);
-                            results.Add(ParseGeometryMetadata(reader.GetString(0), formattedType));
+                            try
+                            {
+                                results.Add(ParseGeometryMetadata(reader.GetString(0), formattedType));
+                            }
+                            catch (Exception ex) when (ex is NotSupportedException || ex is DataException)
+                            {
+                                throw new NotSupportedException("空间表 " + schemaName + "." + tableName +
+                                    " 的 Geometry 字段无法读取：" + ex.Message, ex);
+                            }
                         }
                     }
                 }
@@ -243,13 +395,14 @@ ORDER BY a.attnum;";
         }
 
         private static string BuildSelectSql(Fields fields, string tableName, string schemaName,
-            string geometryColumnName, bool includeId, string whereSql)
+            string geometryColumnName, bool includeId, string whereSql,
+            string keyColumnName = PostGISSchemaMapper.DefaultIdColumnName)
         {
             StringBuilder sql = new StringBuilder("SELECT ");
             bool hasPrevious = false;
             if (includeId)
             {
-                sql.Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultIdColumnName));
+                sql.Append(PostGISSchemaMapper.QuoteIdentifier(keyColumnName));
                 hasPrevious = true;
             }
             for (int i = 0; i < fields.Count; i++)
@@ -268,22 +421,36 @@ ORDER BY a.attnum;";
             return sql.ToString();
         }
 
-        private static FieldTypeConstant MapPostgreSqlType(string dataType, string udtName)
+        private static bool TryMapPostgreSqlType(string dataType, string udtName,
+            out FieldTypeConstant fieldType, out string warning)
         {
+            fieldType = FieldTypeConstant.Text;
+            warning = null;
             switch (dataType)
             {
-                case "smallint": return FieldTypeConstant.Int16;
-                case "integer": return FieldTypeConstant.Int32;
-                case "real": return FieldTypeConstant.Single;
-                case "double precision": return FieldTypeConstant.Double;
+                case "smallint": fieldType = FieldTypeConstant.Int16; return true;
+                case "integer": fieldType = FieldTypeConstant.Int32; return true;
+                case "bigint": fieldType = FieldTypeConstant.Int64; return true;
+                case "real": fieldType = FieldTypeConstant.Single; return true;
+                case "double precision": fieldType = FieldTypeConstant.Double; return true;
+                case "numeric":
+                case "decimal": fieldType = FieldTypeConstant.Decimal; return true;
                 case "text":
                 case "character varying":
-                case "character": return FieldTypeConstant.Text;
+                case "character": fieldType = FieldTypeConstant.Text; return true;
                 case "date":
                 case "timestamp without time zone":
-                case "timestamp with time zone": return FieldTypeConstant.Date;
-                case "boolean": return FieldTypeConstant.Boolean;
-                default: throw new NotSupportedException("不支持的 PostgreSQL 字段类型：" + dataType + " (" + udtName + ")");
+                case "timestamp with time zone": fieldType = FieldTypeConstant.Date; return true;
+                case "boolean": fieldType = FieldTypeConstant.Boolean; return true;
+                case "uuid":
+                case "json":
+                case "jsonb":
+                    fieldType = FieldTypeConstant.Text;
+                    warning = "数据库类型 " + dataType + " 以文本形式只读导入。";
+                    return true;
+                default:
+                    warning = "不支持的 PostgreSQL 字段类型：" + dataType + " (" + udtName + ")";
+                    return false;
             }
         }
 
@@ -308,8 +475,10 @@ ORDER BY a.attnum;";
                 case FieldTypeConstant.Byte: return Convert.ToByte(value);
                 case FieldTypeConstant.Int16: return Convert.ToInt16(value);
                 case FieldTypeConstant.Int32: return Convert.ToInt32(value);
+                case FieldTypeConstant.Int64: return Convert.ToInt64(value);
                 case FieldTypeConstant.Single: return Convert.ToSingle(value);
                 case FieldTypeConstant.Double: return Convert.ToDouble(value);
+                case FieldTypeConstant.Decimal: return Convert.ToDecimal(value);
                 case FieldTypeConstant.Text: return Convert.ToString(value);
                 case FieldTypeConstant.Date: return Convert.ToDateTime(value);
                 case FieldTypeConstant.Boolean: return Convert.ToBoolean(value);
@@ -322,6 +491,27 @@ ORDER BY a.attnum;";
             public string ColumnName { get; set; }
             public GeometryTypeConstant GeometryType { get; set; }
             public int Srid { get; set; }
+        }
+
+        private sealed class PrimaryKeyMetadata
+        {
+            public string ColumnName { get; set; }
+            public string DataType { get; set; }
+            public string UdtName { get; set; }
+        }
+
+        private static void EnsureEditableKeyType(string tableName, string schemaName,
+            PrimaryKeyMetadata primaryKey)
+        {
+            if (primaryKey == null)
+                throw new NotSupportedException("空间表 " + schemaName + "." + tableName +
+                    " 没有主键；只读加载请使用 LoadReadOnlyLayerContext。" );
+            if (primaryKey.DataType != "smallint" && primaryKey.DataType != "integer" &&
+                primaryKey.DataType != "bigint")
+                throw new NotSupportedException("空间表 " + schemaName + "." + tableName +
+                    " 的主键 " + primaryKey.ColumnName + " 类型为 " + primaryKey.DataType +
+                    " (" + primaryKey.UdtName + ")；当前编辑同步只支持整数主键，"+
+                    "只读加载请使用 LoadReadOnlyLayerContext。" );
         }
     }
 }

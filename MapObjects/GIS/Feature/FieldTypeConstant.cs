@@ -29,7 +29,13 @@ namespace GIS
         Date,
 
         /// <summary>布尔型</summary>
-        Boolean
+        Boolean,
+
+        /// <summary>长整型（Int64）</summary>
+        Int64,
+
+        /// <summary>高精度小数型</summary>
+        Decimal
     }
 
     /// <summary>
@@ -50,10 +56,14 @@ namespace GIS
                     return typeof(Int16);
                 case FieldTypeConstant.Int32:
                     return typeof(Int32);
+                case FieldTypeConstant.Int64:
+                    return typeof(Int64);
                 case FieldTypeConstant.Single:
                     return typeof(Single);
                 case FieldTypeConstant.Double:
                     return typeof(Double);
+                case FieldTypeConstant.Decimal:
+                    return typeof(Decimal);
                 case FieldTypeConstant.Text:
                     return typeof(String);
                 case FieldTypeConstant.Date:

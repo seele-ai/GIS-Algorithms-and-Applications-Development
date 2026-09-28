@@ -293,10 +293,14 @@ namespace GIS.PostGIS
                     return NpgsqlDbType.Smallint;
                 case FieldTypeConstant.Int32:
                     return NpgsqlDbType.Integer;
+                case FieldTypeConstant.Int64:
+                    return NpgsqlDbType.Bigint;
                 case FieldTypeConstant.Single:
                     return NpgsqlDbType.Real;
                 case FieldTypeConstant.Double:
                     return NpgsqlDbType.Double;
+                case FieldTypeConstant.Decimal:
+                    return NpgsqlDbType.Numeric;
                 case FieldTypeConstant.Text:
                     return NpgsqlDbType.Text;
                 case FieldTypeConstant.Date:

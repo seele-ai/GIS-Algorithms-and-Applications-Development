@@ -13,6 +13,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS", "MapObjects\GIS\GIS.c
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GISDemo", "MapObjects\GISDemo\GISDemo.csproj", "{36FAB91C-E0C2-45D8-9D0D-351C04D07F2E}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "模块5_PostGIS交互_李雨晴", "模块5_PostGIS交互_李雨晴", "{C8652AA4-198B-4F01-923F-E75E31D88ABE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS.PostGIS", "模块5_PostGIS交互_李雨晴\GIS.PostGIS\GIS.PostGIS.csproj", "{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GIS.PostGIS.Demo", "模块5_PostGIS交互_李雨晴\GIS.PostGIS.Demo\GIS.PostGIS.Demo.csproj", "{149FF391-90F4-4E89-B23C-CA0D2A04EFD0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,11 +45,23 @@ Global
 		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A2A27B00-6E87-4C7D-83C3-A5C74B87F560}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{149FF391-90F4-4E89-B23C-CA0D2A04EFD0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{149FF391-90F4-4E89-B23C-CA0D2A04EFD0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{149FF391-90F4-4E89-B23C-CA0D2A04EFD0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{149FF391-90F4-4E89-B23C-CA0D2A04EFD0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A} = {C8652AA4-198B-4F01-923F-E75E31D88ABE}
+		{149FF391-90F4-4E89-B23C-CA0D2A04EFD0} = {C8652AA4-198B-4F01-923F-E75E31D88ABE}
 	EndGlobalSection
 EndGlobal

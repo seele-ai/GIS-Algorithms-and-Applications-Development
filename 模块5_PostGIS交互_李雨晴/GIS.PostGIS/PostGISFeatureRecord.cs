@@ -10,8 +10,6 @@ namespace GIS.PostGIS
     {
         public PostGISFeatureRecord(long id, Feature feature)
         {
-            if (id <= 0)
-                throw new ArgumentOutOfRangeException(nameof(id), "数据库主键必须大于 0。");
             Id = id;
             Feature = feature ?? throw new ArgumentNullException(nameof(feature));
         }

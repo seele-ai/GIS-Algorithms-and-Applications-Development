@@ -60,6 +60,12 @@ namespace GIS
             set { _ProjectionCS = value; }
         }
 
+        /// <summary>
+        /// 获取或设置数据源的 EPSG/SRID。null 表示未声明；该值与 ProjectionCS 分开保存，
+        /// 用于表达地理坐标系（例如 EPSG:4326）以及数据库中的空间参考身份。
+        /// </summary>
+        public int? Srid { get; set; }
+
         #endregion
 
         #region 方法

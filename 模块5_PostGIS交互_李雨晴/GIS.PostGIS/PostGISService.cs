@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Text;
 using Npgsql;
 using NpgsqlTypes;
@@ -89,7 +90,6 @@ WHERE table_schema = @schema AND table_name = @table);";
         public bool UpdateFeature(FeatureClass featureClass, string tableName, long id, Feature feature, int srid,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
-            if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id));
             ValidateFeature(featureClass, feature);
             using (NpgsqlConnection connection = _database.CreateConnection())
             {
@@ -112,7 +112,6 @@ WHERE table_schema = @schema AND table_name = @table);";
         public bool DeleteFeature(string tableName, long id,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
-            if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id));
             string sql = "DELETE FROM " + PostGISSchemaMapper.GetQualifiedTableName(schemaName, tableName) +
                          " WHERE " + PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultIdColumnName) + " = @id;";
             using (NpgsqlConnection connection = _database.CreateConnection())
@@ -124,6 +123,91 @@ WHERE table_schema = @schema AND table_name = @table);";
                     return command.ExecuteNonQuery() == 1;
                 }
             }
+        }
+
+        /// <summary>
+        /// 在一个数据库事务中提交新增、修改和删除。任何操作失败时整体回滚，
+        /// 图层上下文只在事务成功后更新。
+        /// </summary>
+        public PostGISCommitResult CommitChanges(PostGISLayerContext context, PostGISChangeSet changes)
+        {
+            if (context == null) throw new ArgumentNullException(nameof(context));
+            if (changes == null) throw new ArgumentNullException(nameof(changes));
+            FeatureClass featureClass = context.Layer.FeatureClass;
+            foreach (Feature feature in changes.Inserts)
+            {
+                ValidateFeature(featureClass, feature);
+                if (!ContainsFeature(featureClass, feature))
+                    throw new InvalidOperationException("新增 Feature 必须先加入当前图层的 FeatureClass。");
+                long existingId;
+                if (context.TryGetDatabaseId(feature, out existingId))
+                    throw new InvalidOperationException("新增集合中包含已经保存的 Feature：id=" + existingId);
+            }
+            foreach (PostGISFeatureUpdate update in changes.Updates) ValidateFeature(featureClass, update.Feature);
+
+            Dictionary<Feature, long> insertedIds = new Dictionary<Feature, long>();
+            int updatedCount = 0;
+            int deletedCount = 0;
+            PostGISLayerSource source = context.Source;
+
+            if (changes.IsEmpty)
+                return new PostGISCommitResult(insertedIds, 0, 0);
+
+            using (NpgsqlConnection connection = _database.CreateConnection())
+            {
+                connection.Open();
+                using (NpgsqlTransaction transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        foreach (Feature feature in changes.Inserts)
+                        {
+                            using (NpgsqlCommand command = CreateWriteCommand(connection, transaction, featureClass,
+                                source.TableName, feature, source.Srid, source.SchemaName, null, true,
+                                source.GeometryColumnName, source.KeyColumnName))
+                            {
+                                insertedIds.Add(feature, Convert.ToInt64(command.ExecuteScalar()));
+                            }
+                        }
+
+                        foreach (PostGISFeatureUpdate update in changes.Updates)
+                        {
+                            using (NpgsqlCommand command = CreateWriteCommand(connection, transaction, featureClass,
+                                source.TableName, update.Feature, source.Srid, source.SchemaName, update.Id, false,
+                                source.GeometryColumnName, source.KeyColumnName))
+                            {
+                                if (command.ExecuteNonQuery() != 1)
+                                    throw new DBConcurrencyException("要修改的数据库记录不存在或已被其他操作删除：id=" + update.Id);
+                                updatedCount++;
+                            }
+                        }
+
+                        string deleteSql = "DELETE FROM " +
+                            PostGISSchemaMapper.GetQualifiedTableName(source.SchemaName, source.TableName) +
+                            " WHERE " + PostGISSchemaMapper.QuoteIdentifier(source.KeyColumnName) + " = @id;";
+                        foreach (long id in changes.Deletes)
+                        {
+                            using (NpgsqlCommand command = new NpgsqlCommand(deleteSql, connection, transaction))
+                            {
+                                command.Parameters.Add("id", NpgsqlDbType.Bigint).Value = id;
+                                if (command.ExecuteNonQuery() != 1)
+                                    throw new DBConcurrencyException("要删除的数据库记录不存在或已被其他操作删除：id=" + id);
+                                deletedCount++;
+                            }
+                        }
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+
+            PostGISCommitResult result = new PostGISCommitResult(insertedIds, updatedCount, deletedCount);
+            context.ApplyCommittedChanges(result, changes.Deletes);
+            return result;
         }
 
         public List<PostGISFeatureRecord> LoadFeatureRecords(string tableName,
@@ -182,7 +266,6 @@ WHERE table_schema = @schema AND table_name = @table);";
         public double GetDistance(string tableName, long id, Geometry other,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
-            if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id));
             if (other == null) throw new ArgumentNullException(nameof(other));
             int srid = _importer.ReadSrid(tableName, schemaName);
             string geom = PostGISSchemaMapper.QuoteIdentifier(_importer.GetGeometryColumnName(tableName, schemaName));
@@ -206,7 +289,8 @@ WHERE table_schema = @schema AND table_name = @table);";
 
         private static NpgsqlCommand CreateWriteCommand(NpgsqlConnection connection, NpgsqlTransaction transaction,
             FeatureClass featureClass, string tableName, Feature feature, int srid, string schemaName,
-            long? updateId, bool returnId)
+            long? updateId, bool returnId, string geometryColumnName = PostGISSchemaMapper.DefaultGeometryColumnName,
+            string keyColumnName = PostGISSchemaMapper.DefaultIdColumnName)
         {
             StringBuilder sql = new StringBuilder();
             if (updateId.HasValue)
@@ -218,9 +302,9 @@ WHERE table_schema = @schema AND table_name = @table);";
                     sql.Append(PostGISSchemaMapper.QuoteIdentifier(featureClass.Fields.GetItem(i).Name)).Append(" = @p").Append(i);
                 }
                 if (featureClass.Fields.Count > 0) sql.Append(", ");
-                sql.Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultGeometryColumnName))
+                sql.Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName))
                    .Append(" = ST_GeomFromText(@wkt, @srid) WHERE ")
-                   .Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultIdColumnName)).Append(" = @id;");
+                   .Append(PostGISSchemaMapper.QuoteIdentifier(keyColumnName)).Append(" = @id;");
             }
             else
             {
@@ -231,7 +315,7 @@ WHERE table_schema = @schema AND table_name = @table);";
                     sql.Append(PostGISSchemaMapper.QuoteIdentifier(featureClass.Fields.GetItem(i).Name));
                 }
                 if (featureClass.Fields.Count > 0) sql.Append(", ");
-                sql.Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultGeometryColumnName)).Append(") VALUES (");
+                sql.Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName)).Append(") VALUES (");
                 for (int i = 0; i < featureClass.Fields.Count; i++)
                 {
                     if (i > 0) sql.Append(", ");
@@ -239,7 +323,7 @@ WHERE table_schema = @schema AND table_name = @table);";
                 }
                 if (featureClass.Fields.Count > 0) sql.Append(", ");
                 sql.Append("ST_GeomFromText(@wkt, @srid))");
-                if (returnId) sql.Append(" RETURNING ").Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultIdColumnName));
+                if (returnId) sql.Append(" RETURNING ").Append(PostGISSchemaMapper.QuoteIdentifier(keyColumnName));
                 sql.Append(';');
             }
             NpgsqlCommand command = new NpgsqlCommand(sql.ToString(), connection, transaction);
@@ -271,6 +355,14 @@ WHERE table_schema = @schema AND table_name = @table);";
                 throw new ArgumentException("Feature 属性数量与 Fields 不一致。", nameof(feature));
         }
 
+        private static bool ContainsFeature(FeatureClass featureClass, Feature feature)
+        {
+            for (int i = 0; i < featureClass.Features.Count; i++)
+                if (ReferenceEquals(featureClass.Features.GetItem(i), feature))
+                    return true;
+            return false;
+        }
+
         private object ExecuteScalar(string sql)
         {
             using (NpgsqlConnection connection = _database.CreateConnection())
@@ -295,8 +387,10 @@ WHERE table_schema = @schema AND table_name = @table);";
                 case FieldTypeConstant.Byte:
                 case FieldTypeConstant.Int16: return NpgsqlDbType.Smallint;
                 case FieldTypeConstant.Int32: return NpgsqlDbType.Integer;
+                case FieldTypeConstant.Int64: return NpgsqlDbType.Bigint;
                 case FieldTypeConstant.Single: return NpgsqlDbType.Real;
                 case FieldTypeConstant.Double: return NpgsqlDbType.Double;
+                case FieldTypeConstant.Decimal: return NpgsqlDbType.Numeric;
                 case FieldTypeConstant.Text: return NpgsqlDbType.Text;
                 case FieldTypeConstant.Date: return NpgsqlDbType.Timestamp;
                 case FieldTypeConstant.Boolean: return NpgsqlDbType.Boolean;

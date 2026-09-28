@@ -29,10 +29,14 @@ namespace GIS.PostGIS
                     return "SMALLINT";
                 case FieldTypeConstant.Int32:
                     return "INTEGER";
+                case FieldTypeConstant.Int64:
+                    return "BIGINT";
                 case FieldTypeConstant.Single:
                     return "REAL";
                 case FieldTypeConstant.Double:
                     return "DOUBLE PRECISION";
+                case FieldTypeConstant.Decimal:
+                    return "NUMERIC";
                 case FieldTypeConstant.Text:
                     return "TEXT";
                 case FieldTypeConstant.Date:

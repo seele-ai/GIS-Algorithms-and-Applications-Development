@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using GIS.PostGIS;
 using GIS.Display.UI;
 
 namespace GIS.Display.Demo
@@ -10,6 +12,7 @@ namespace GIS.Display.Demo
     {
         // 1度约111.32km（按纬度折算），用于把经纬度换算为地图比例尺所需的米
         private const double MetersPerDegree = 111320.0;
+        private const int DefaultPostGISPanelWidth = 320;
 
         public MapControl Map { get; } = new MapControl { Dock = DockStyle.Fill };
         private readonly LayerManagerControl layerManager = new LayerManagerControl { Dock = DockStyle.Fill };
@@ -19,6 +22,10 @@ namespace GIS.Display.Demo
         private readonly ListView selectionList = new ListView { Dock = DockStyle.Fill,
             View = View.Details, FullRowSelect = true, GridLines = true };
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
+        private readonly Dictionary<Layer, PostGISReadOnlyLayerContext> postgisLayers = new Dictionary<Layer, PostGISReadOnlyLayerContext>();
+        private PostGISDataSourceForm postGISDataSourcePanel;
+        private SplitContainer mainContent;
+        private bool mainContentSplitterInitialized;
 
         // 当前地图显示坐标系：null 表示经纬度（地理坐标），否则为选定投影
         private ProjectionCS currentProjection;
@@ -56,6 +63,8 @@ namespace GIS.Display.Demo
             AddAction("清空选择", () => Map.ClearSelection());
             AddAction("重置样例", LoadSamples);
             toolbar.Items.Add(new ToolStripSeparator());
+            AddAction("PostGIS 数据源", TogglePostGISDataSourcePanel);
+            toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
             projectionCombo.Items.AddRange(new object[] { "经纬度（度）", "高斯-克吕格", "UTM", "Lambert 中国" });
@@ -77,10 +86,20 @@ namespace GIS.Display.Demo
             selectMethod.SelectedIndex = 0;
             selectMethod.SelectedIndexChanged += (s, e) => Map.SelectionMethod = (SelectMethodConstant)selectMethod.SelectedIndex;
             toolbar.Items.Add(selectMethod);
-            var split = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1180, 560),
+            var mapContent = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1180, 560),
                 FixedPanel = FixedPanel.Panel1, SplitterDistance = 230, Panel1MinSize = 210, Panel2MinSize = 350 };
-            split.Panel1.Controls.Add(layerManager);
-            split.Panel2.Controls.Add(Map);
+            mapContent.Panel1.Controls.Add(layerManager);
+            mapContent.Panel2.Controls.Add(Map);
+            mainContent = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
+            mainContent.Panel1.Controls.Add(mapContent);
+            postGISDataSourcePanel = new PostGISDataSourceForm();
+            postGISDataSourcePanel.TableSelected += (s, e) => AddSelectedPostGISLayer();
+            postGISDataSourcePanel.CloseRequested += (s, e) => mainContent.Panel2Collapsed = true;
+            mainContent.Panel2.Controls.Add(postGISDataSourcePanel);
+            // Form 作为子控件嵌入 SplitContainer 后不会自动进入可见状态，
+            // 必须显式打开，否则右侧会只有空白面板。
+            postGISDataSourcePanel.Visible = true;
+            mainContent.Panel2Collapsed = true;
             var lower = new Panel { Dock = DockStyle.Bottom, Height = 130 };
             var label = new Label { Text = "选择结果", Dock = DockStyle.Top, Height = 25 };
             selectionList.Columns.Add("图层", 230);
@@ -92,7 +111,7 @@ namespace GIS.Display.Demo
             status.Items.Add(scale);
             status.Items.Add(selected);
             status.Items.Add(position);
-            Controls.Add(split);
+            Controls.Add(mainContent);
             Controls.Add(lower);
             Controls.Add(hint);
             Controls.Add(toolbar);
@@ -101,9 +120,24 @@ namespace GIS.Display.Demo
             layerManager.Bind(Map);
             Map.ViewChanged += (s, e) => UpdateStatus();
             Map.SelectionChanged += (s, e) => UpdateSelection();
-            Map.LayersChanged += (s, e) => UpdateStatus();
+            Map.LayersChanged += (s, e) => { PrunePostGISLayers(); UpdateStatus(); };
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
-            Shown += (s, e) => LoadSamples();
+            Shown += (s, e) => { ConfigureMainContentSplitter(); LoadSamples(); };
+            mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
+        }
+
+        private void ConfigureMainContentSplitter()
+        {
+            if (mainContent == null || mainContent.Width < 950) return;
+            mainContent.Panel1MinSize = 650;
+            mainContent.Panel2MinSize = 300;
+            if (mainContentSplitterInitialized) return;
+
+            // 默认只给右侧数据源面板约 320 像素；窗口全屏时不再按比例放大。
+            int distance = mainContent.Width - DefaultPostGISPanelWidth;
+            mainContent.SplitterDistance = Math.Max(mainContent.Panel1MinSize,
+                Math.Min(distance, mainContent.Width - mainContent.Panel2MinSize));
+            mainContentSplitterInitialized = true;
         }
 
         /// <summary>
@@ -112,6 +146,7 @@ namespace GIS.Display.Demo
         /// </summary>
         public void LoadSamples()
         {
+            postgisLayers.Clear();
             foreach (Layer layer in Map.Layers.ToArray()) Map.RemoveLayer(layer);
             foreach (Layer layer in SampleData.Create())
             {
@@ -121,6 +156,76 @@ namespace GIS.Display.Demo
             }
             Map.FullExtent();
             UpdateSelection();
+        }
+
+        private void TogglePostGISDataSourcePanel()
+        {
+            mainContent.Panel2Collapsed = !mainContent.Panel2Collapsed;
+            if (!mainContent.Panel2Collapsed)
+                postGISDataSourcePanel.BringToFront();
+        }
+
+        private void AddSelectedPostGISLayer()
+        {
+            PostGISDataSourceForm form = postGISDataSourcePanel;
+            if (form.Connection == null || string.IsNullOrWhiteSpace(form.SelectedTable)) return;
+            try
+            {
+                PostGISReadOnlyLayerContext context = new PostGISImporter(form.Connection)
+                    .LoadReadOnlyLayerContext(form.SelectedTable, form.SelectedSchema);
+                if (context.Source.Srid != 4326)
+                {
+                    MessageBox.Show(this,
+                        "当前主程序只接收 EPSG:4326 的经纬度数据。\r\n" +
+                        "该图层 SRID 为 " + context.Source.Srid + "，已拒绝加载，避免静默误投影。",
+                        "坐标系不匹配", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                Layer layer = context.Layer;
+                layer.Symbol = CreateDefaultSymbol(layer.FeatureClass.GeometryType);
+                layer.CaptureGeographic(null);
+                layer.ApplyProjection(currentProjection);
+                Map.AddLayer(layer);
+                postgisLayers[layer] = context;
+                Map.FullExtent();
+                Map.RefreshMap();
+                string warning = context.Warnings.Count == 0 ? string.Empty :
+                    "\r\n\r\n提示：\r\n- " + string.Join("\r\n- ", context.Warnings);
+                MessageBox.Show(this,
+                    "已添加数据库图层：" + context.Source.QualifiedName +
+                    warning,
+                    "PostGIS", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "添加 PostGIS 图层失败",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void PrunePostGISLayers()
+        {
+            foreach (Layer layer in postgisLayers.Keys.ToArray())
+            {
+                if (Map.Layers.Contains(layer)) continue;
+                postgisLayers.Remove(layer);
+            }
+        }
+
+        private static Symbol CreateDefaultSymbol(GeometryTypeConstant type)
+        {
+            switch (type)
+            {
+                case GeometryTypeConstant.Point:
+                case GeometryTypeConstant.MultiPoint:
+                    return new SimpleMarkerSymbol { Color = Color.SteelBlue, Size = 3.5 };
+                case GeometryTypeConstant.LineString:
+                case GeometryTypeConstant.MultiLineString:
+                    return new SimpleLineSymbol { Color = Color.SteelBlue, Size = 0.8 };
+                default:
+                    return new SimpleFillSymbol { Color = Color.LightBlue };
+            }
         }
 
         #region 投影

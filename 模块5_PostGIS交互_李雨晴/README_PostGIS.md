@@ -13,6 +13,11 @@
 │   ├── PostGISExporter.cs
 │   ├── PostGISImporter.cs
 │   ├── PostGISFeatureRecord.cs
+│   ├── PostGISLayerSource.cs
+│   ├── PostGISReadOnlyLayerContext.cs
+│   ├── PostGISLayerContext.cs
+│   ├── PostGISChangeSet.cs
+│   ├── PostGISCommitResult.cs
 │   └── PostGISService.cs
 └── GIS.PostGIS.Demo/
     ├── Program.cs
@@ -87,6 +92,21 @@ int count = exporter.SaveFeatureClass(
 - 构造 Attributes、Feature、FeatureClass；
 - 使用 `PostGISFeatureRecord` 返回数据库 `id + Feature`。
 
+只读地图加载使用 `LoadReadOnlyLayerContext()`。它不要求空间表存在主键，因此普通空间表和
+空间视图也可以加载。返回的 `PostGISReadOnlyLayerContext` 包含 `Layer`、来源信息和导入提示。
+如果表中有当前 GIS 数据结构无法准确表达的字段，该字段会被跳过并在 `Warnings` 中说明。
+
+```csharp
+PostGISReadOnlyLayerContext context = importer.LoadReadOnlyLayerContext("roads", "public");
+map.AddLayer(context.Layer);
+foreach (string warning in context.Warnings)
+    Console.WriteLine(warning);
+```
+
+当前可安全映射的常见类型包括 `smallint`、`integer`、`bigint`、`real`、`double precision`、
+`numeric/decimal`、文本、日期时间和布尔类型。`uuid`、`json`、`jsonb` 以文本形式只读导入；
+无法安全表达的类型（例如 `bytea`、`time` 和数组）会被跳过并给出字段级提示。
+
 ```csharp
 PostGISImporter importer = new PostGISImporter(db);
 int srid;
@@ -118,6 +138,44 @@ GetFields
 - `LoadFeatureRecords`：读取 id 与 Feature 的稳定对应。
 
 共享的 `Feature` 类没有被修改，数据库主键只由模块5的 `PostGISFeatureRecord` 保存。
+
+### 数据库图层上下文
+
+`PostGISImporter.LoadLayerContext()` 是面向未来编辑同步的上下文，一次返回可加入地图的 `Layer`、数据库来源描述和
+`Feature ↔ id` 双向映射。图层显示名称与数据库表身份分离，用户重命名图层不会改变
+其 `schema/table/geometry column/key column/SRID`。地图选择得到原始 `Feature` 后，可用
+`GetDatabaseId(feature)` 定位待更新或删除的数据库记录。
+
+该编辑上下文目前只支持单列 integer/bigint 主键；UUID 或字符串主键请使用只读上下文。
+
+```csharp
+PostGISLayerContext context = importer.LoadLayerContext("roads", "public");
+map.AddLayer(context.Layer);
+
+Feature selected = map.GetSelection(context.Layer).GetItem(0);
+long databaseId = context.GetDatabaseId(selected);
+```
+
+当前上下文表示一次完整表加载；新建但尚未保存的 Feature 暂时没有数据库 id。编辑缓冲与
+批量事务提交基于此上下文完成。
+
+### 批量保存编辑
+
+`CommitChanges()` 将一次保存中的新增、修改、删除放在同一个事务中。任意操作失败时全部
+回滚；只有提交成功后，新增要素的数据库主键和删除记录才会同步到图层上下文。
+
+```csharp
+PostGISChangeSet changes = new PostGISChangeSet();
+changes.AddInsert(newFeature);
+changes.AddUpdate(context, changedFeature);
+changes.AddDelete(context, deletedFeature);
+
+PostGISCommitResult result = service.CommitChanges(context, changes);
+```
+
+同一记录不能在一个变更集合中同时修改和删除。更新或删除影响行数不是1时视为并发冲突，
+整次保存回滚。当前只负责数据库原子提交；开始编辑、撤销以及放弃编辑的本地缓冲由后续
+编辑会话功能负责。
 
 ### 空间 SQL
 
@@ -169,7 +227,8 @@ public.postgis_test_management（测试后删除）
 - 模块自动生成的 `id` 为 BIGSERIAL，不加入 `FeatureClass.Fields`，由 `PostGISFeatureRecord` 单独保存。
 - 每张空间表目前支持一个 Geometry 字段。
 - Geometry 不能为空。
-- 导入普通外部表时，只支持本模块 FieldTypeConstant 能表达的数据库字段类型。
+- 导入普通外部表时，无法由本模块数据结构准确表达的字段会被只读导入器跳过并报告提示。
+- 当前主程序只接受 EPSG:4326 图层，其他 SRID 会明确拒绝，不进行静默转换。
 - `Byte` 和 `Int16` 在 PostgreSQL 中都保存为 SMALLINT，重新读取后统一表现为 Int16。
 - 当前按单要素参数化 INSERT，适合课程项目与常规数据；超大批量导入可后续增加 PostgreSQL COPY。
 
