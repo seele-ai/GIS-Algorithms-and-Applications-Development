@@ -60,6 +60,7 @@ internal static class Program
             TestSelectionAndNavigation();
             TestDrawing();
             TestModule3Extensions();
+            ShapefileChecks.Run(output, Check, args.Length > 1 ? args[1] : null);
             using (var form = new MainForm())
             {
                 // 创建真实控件句柄和完成布局，但不显示测试窗口。
@@ -67,7 +68,16 @@ internal static class Program
                 form.Opacity = 0;
                 form.Show();
                 Application.DoEvents();
+                Check(form.Map.Layers.Count == 0, "启动时不加载案例");
+                var imported = new Layer(new FeatureClass("外部图层", GeometryTypeConstant.Point));
+                form.Map.AddLayer(imported);
+                form.ToggleSamples();
+                Check(form.Map.Layers.Count == 7, "显示案例保留外部图层");
+                form.ToggleSamples();
+                Check(form.Map.Layers.Count(l => l.Visible) == 1 && imported.Visible, "隐藏案例不影响外部图层");
                 form.LoadSamples();
+                Check(form.Map.Layers.Count == 7 && form.Map.Layers.Contains(imported), "重置案例保留外部图层");
+                form.Map.RemoveLayer(imported);
                 Check(form.Map.Layers.Count == 6, "演示程序加载6个样例图层");
                 Check(form.Map.Layers.Sum(l => l.FeatureClass.Features.Count) == 12, "演示程序包含12个样例要素");
                 Check(form.Map.Visible && form.Map.Width > 500 && form.Map.Height > 250, "地图控件可见且布局尺寸有效");

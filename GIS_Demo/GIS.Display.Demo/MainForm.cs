@@ -1,6 +1,9 @@
 using System;
 using System.Drawing;
 using System.Linq;
+using System.Collections.Generic;
+using System.IO;
+using GIS.IO;
 using System.Windows.Forms;
 using GIS.Display.UI;
 
@@ -21,6 +24,7 @@ namespace GIS.Display.Demo
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
 
         // 当前地图显示坐标系：null 表示经纬度（地理坐标），否则为选定投影
+        private readonly List<Layer> sampleLayers = new List<Layer>();
         private ProjectionCS currentProjection;
         private int currentProjectionIndex = -1;
 
@@ -54,7 +58,9 @@ namespace GIS.Display.Demo
             toolbar.Items.Add(new ToolStripSeparator());
             AddAction("全图", () => ZoomToAllLayers());
             AddAction("清空选择", () => Map.ClearSelection());
-            AddAction("重置样例", LoadSamples);
+            AddAction("导入 SHP", ImportShapefiles);
+            AddAction("显示/隐藏案例", ToggleSamples);
+            AddAction("重置案例", LoadSamples);
             toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
@@ -103,7 +109,7 @@ namespace GIS.Display.Demo
             Map.SelectionChanged += (s, e) => UpdateSelection();
             Map.LayersChanged += (s, e) => UpdateStatus();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
-            Shown += (s, e) => LoadSamples();
+            Shown += (s, e) => UpdateStatus();
         }
 
         /// <summary>
@@ -112,9 +118,11 @@ namespace GIS.Display.Demo
         /// </summary>
         public void LoadSamples()
         {
-            foreach (Layer layer in Map.Layers.ToArray()) Map.RemoveLayer(layer);
+            foreach (Layer layer in sampleLayers) Map.RemoveLayer(layer);
+            sampleLayers.Clear();
             foreach (Layer layer in SampleData.Create())
             {
+                sampleLayers.Add(layer);
                 layer.CaptureGeographic(null);        // 原始数据即经纬度
                 layer.ApplyProjection(currentProjection);
                 Map.AddLayer(layer);
@@ -123,6 +131,47 @@ namespace GIS.Display.Demo
             UpdateSelection();
         }
 
+        public void ToggleSamples()
+        {
+            if (!sampleLayers.Any(l => Map.Layers.Contains(l))) { LoadSamples(); return; }
+            bool show = !sampleLayers.Any(l => Map.Layers.Contains(l) && l.Visible);
+            foreach (Layer layer in sampleLayers.Where(l => Map.Layers.Contains(l)))
+                Map.SetLayerVisible(layer, show);
+            ZoomToAllLayers();
+            UpdateSelection();
+        }
+
+        public Layer ImportShapefile(string path, bool assumeWgs84 = false)
+        {
+            Layer layer = ShapefileReader.Read(path, assumeWgs84);
+            layer.ApplyProjection(currentProjection);
+            Map.AddLayer(layer);
+            if (!layer.FeatureClass.GetEnvelope().IsNull) Map.SetExtent(layer.FeatureClass.GetEnvelope());
+            UpdateStatus();
+            return layer;
+        }
+
+        private void ImportShapefiles()
+        {
+            using (var dialog = new OpenFileDialog { Title = "导入 Shapefile", Filter = "Shapefile (*.shp)|*.shp", Multiselect = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                var errors = new List<string>();
+                foreach (string path in dialog.FileNames)
+                {
+                    bool assume = false;
+                    if (!File.Exists(Path.ChangeExtension(path, ".prj")))
+                    {
+                        if (MessageBox.Show(this, Path.GetFileName(path) + " 缺少 .prj。是否按 WGS84 经纬度导入？\r\n投影坐标数据请补齐 .prj 后再导入。",
+                            "确认源坐标系", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) continue;
+                        assume = true;
+                    }
+                    try { ImportShapefile(path, assume); }
+                    catch (Exception ex) { errors.Add(Path.GetFileName(path) + "：" + ex.Message); }
+                }
+                if (errors.Count > 0) MessageBox.Show(this, string.Join("\r\n", errors), "部分文件未导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
         #region 投影
 
         private void SetProjection(int index, bool force)

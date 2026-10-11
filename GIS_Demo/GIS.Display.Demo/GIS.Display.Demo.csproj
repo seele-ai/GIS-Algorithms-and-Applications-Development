@@ -11,4 +11,3 @@
     <ProjectReference Include="..\GIS.Display\GIS.Display.csproj" />
   </ItemGroup>
 </Project>
-
