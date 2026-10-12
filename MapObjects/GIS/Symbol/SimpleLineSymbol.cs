@@ -219,6 +219,26 @@ namespace GIS
             get { return _Offsets.Count > 0; }
         }
 
+        /// <summary>
+        /// 线符号的**有效线宽**（毫米）：启用自定义虚线时取**最宽的那一段**（该段线宽 + 两侧边框），
+        /// 否则取 <see cref="Size"/>。
+        /// 偏移线的自动间距、列表里显示的“宽”都要用它：否则“自定义虚线各段比 Size 宽”时，
+        /// 界面与间距会与实际画出来的线不一致（偏移线之间会互相压住）。
+        /// </summary>
+        public double EffectiveWidth
+        {
+            get
+            {
+                double width = Math.Max(0, _Size);
+                foreach (LineDashElement element in _DashElements)
+                {
+                    if (element == null) continue;
+                    width = Math.Max(width, Math.Max(0, element.Width) + 2 * Math.Max(0, element.OutlineWidth));
+                }
+                return width;
+            }
+        }
+
         #endregion
 
         #region 方法

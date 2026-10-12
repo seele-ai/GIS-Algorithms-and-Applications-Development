@@ -187,9 +187,9 @@ namespace GIS.Display.UI
         }
 
         /// <summary>
-        /// 新偏移线的默认偏移量：取“当前各偏移线的（偏移量 + 线宽）”的最大值，
-        /// 于是连续添加时会自然得到 0 → 2 → 4（对应 2mm 线宽）这样的平行线序列；
-        /// 若已有偏移线都在负方向，则继续向负方向排开。没有偏移线时返回 0。
+        /// 新偏移线的默认偏移量：取“当前各偏移线的（偏移量 + **有效线宽**）”的最大值，
+        /// 于是连续添加时会自然得到 0 → 2 → 4 这样的平行线序列（自定义虚线时用最宽的那一段，
+        /// 否则用 Size）；若已有偏移线都在负方向，则继续向负方向排开。没有偏移线时返回 0。
         /// </summary>
         private double NextOffsetDefault()
         {
@@ -199,7 +199,7 @@ namespace GIS.Display.UI
             foreach (LineOffset o in symbol.Offsets)
             {
                 if (o == null) continue;
-                double width = o.Line == null ? 0 : Math.Max(0, o.Line.Size);
+                double width = o.Line == null ? 0 : o.Line.EffectiveWidth;
                 if (o.Offset >= 0) { positive = Math.Max(positive, o.Offset + width); hasPositive = true; }
                 else { negative = Math.Min(negative, o.Offset - width); hasNegative = true; }
             }
@@ -235,7 +235,8 @@ namespace GIS.Display.UI
             {
                 var o = symbol.Offsets[i];
                 string style = o.Line != null && o.Line.HasCustomDash ? "自定义虚线" : "简单线";
-                double w = o.Line == null ? 0 : o.Line.Size;
+                // 宽度用“有效线宽”：自定义虚线时是最宽的那一段（含边框），否则是 Size
+                double w = o.Line == null ? 0 : o.Line.EffectiveWidth;
                 offsetList.Items.Add(string.Format("[{0}] 偏移{1:F1}mm  {2} 宽{3:F1}mm", i + 1, o.Offset, style, w));
             }
         }
@@ -469,6 +470,7 @@ namespace GIS.Display.UI
         private readonly NumericUpDown offsetValue = new NumericUpDown { Minimum = -50, Maximum = 50, Increment = 0.5m, DecimalPlaces = 1, Width = 200 };
         private readonly Button lineBtn;
         private readonly Panel preview = new Panel { Dock = DockStyle.Top, Height = 70, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White };
+        private readonly Label lineWidthInfo = new Label { AutoSize = true, ForeColor = Color.FromArgb(90, 90, 90) };
 
         private LineOffsetEditor(LineOffset source)
         {
@@ -488,7 +490,7 @@ namespace GIS.Display.UI
             lineBtn = new Button { Text = "编辑线符号…", Width = 330 };
             lineBtn.Click += (s, e) => {
                 var line = LineSymbolEditor.Edit(this, offset.Line);
-                if (line != null) { line.Offsets.Clear(); offset.Line = line; RefreshPreview(); }
+                if (line != null) { line.Offsets.Clear(); offset.Line = line; RefreshLineWidthInfo(); RefreshPreview(); }
             };
             preview.Paint += (s, e) => DrawPreview(e.Graphics);
 
@@ -497,6 +499,10 @@ namespace GIS.Display.UI
             grid.Controls.Add(offsetValue, 1, 0);
             grid.Controls.Add(new Label { Text = "线符号", AutoSize = true }, 0, 1);
             grid.Controls.Add(lineBtn, 1, 1);
+            // 偏移量要按“实际画出来的宽度”来排，因此这里显示有效线宽（自定义虚线时是最宽的那一段）
+            grid.Controls.Add(lineWidthInfo, 0, 2);
+            grid.SetColumnSpan(lineWidthInfo, 2);
+            RefreshLineWidthInfo();
 
             var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
             var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
@@ -531,6 +537,18 @@ namespace GIS.Display.UI
         }
 
         private void RefreshPreview() => preview.Invalidate();
+
+        // 有效线宽提示：自定义虚线时是最宽的那一段（含边框），否则是 Size
+        private void RefreshLineWidthInfo()
+        {
+            double width = offset.Line == null ? 0 : offset.Line.EffectiveWidth;
+            bool custom = offset.Line != null && offset.Line.HasCustomDash;
+            lineWidthInfo.Text = "　　有效线宽 " + width.ToString("F1") + " 毫米"
+                + (custom ? "（自定义虚线取最宽的那一段，含该段两侧边框）" : "（= 线宽）");
+        }
+
+        /// <summary>创建“设置偏移线”窗口（对话框与自动检查共用）。</summary>
+        public static LineOffsetEditor Create(LineOffset source) => new LineOffsetEditor(source);
 
         public static LineOffset Edit(IWin32Window owner, LineOffset source)
         {

@@ -258,11 +258,12 @@ namespace GIS.Display
             if (marker != null) size = Math.Max(marker.Size, Math.Max(marker.OutlineWidth, 0));
             else if (line != null)
             {
-                size = line.Size;
+                // 有效线宽：自定义虚线时取最宽的一段（含边框），否则取 Size
+                size = line.EffectiveWidth;
                 foreach (LineDashElement e in line.DashElements)
-                    size = Math.Max(size, Math.Max(e.Width, Math.Max(e.OutlineWidth, e.TickLength)));
+                    if (e != null) size = Math.Max(size, Math.Max(e.TickLength, e.OutlineWidth));
                 foreach (LineOffset o in line.Offsets)
-                    if (o != null) size = Math.Max(size, Math.Abs(o.Offset) + (o.Line == null ? 0 : o.Line.Size));
+                    if (o != null) size = Math.Max(size, Math.Abs(o.Offset) + (o.Line == null ? 0 : o.Line.EffectiveWidth));
             }
             else if (fill != null)
                 foreach (FillOutline o in fill.Outlines)

@@ -359,6 +359,69 @@ internal static class Program
             }
         }
 
+        // 1b) 偏移线用自定义虚线时，“宽度”必须是最宽的那一段（含边框），不能还是 Size：
+        //     否则界面显示的宽度、以及“增加偏移线”的自动间距都按 Size 算，偏移线会互相压住。
+        {
+            var dashOffsetLine = new SimpleLineSymbol { Color = Color.Black, Size = 0.35 };
+            dashOffsetLine.DashElements.Add(new LineDashElement { Length = 6, Color = Color.Black, Width = 0.5 });
+            dashOffsetLine.DashElements.Add(new LineDashElement
+            {
+                Length = 2, Color = Color.Red, Width = 2, OutlineColor = Color.Blue, OutlineWidth = 0.25
+            });   // 最宽的一段：2 + 2×0.25 = 2.5 毫米
+            Check(Math.Abs(dashOffsetLine.EffectiveWidth - 2.5) < 1e-9,
+                "自定义虚线的有效线宽 = 最宽那一段的线宽 + 两侧边框（" + dashOffsetLine.EffectiveWidth + " 毫米）");
+            var plainOffsetLine = new SimpleLineSymbol { Color = Color.Black, Size = 1.2 };
+            Check(Math.Abs(plainOffsetLine.EffectiveWidth - 1.2) < 1e-9, "普通线型的有效线宽就是线宽（Size）");
+
+            // 列表里显示的就是有效线宽（此前显示 Size，0.35 而不是 2.5）
+            var offsetsSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.8 };
+            offsetsSymbol.Offsets.Add(new LineOffset(0, dashOffsetLine));
+            offsetsSymbol.Offsets.Add(new LineOffset(3, plainOffsetLine));
+            using (var offsetEditor = LineSymbolEditor.Create(offsetsSymbol))
+            {
+                offsetEditor.ShowInTaskbar = false;
+                offsetEditor.Opacity = 0;
+                offsetEditor.Show();
+                Application.DoEvents();
+                ListBox offsetBox = null;
+                foreach (ListBox box in AllListBoxes(offsetEditor))
+                    foreach (object item in box.Items)
+                        if (item.ToString().Contains("偏移") && item.ToString().Contains("宽")) offsetBox = box;
+                string first = offsetBox == null || offsetBox.Items.Count == 0 ? "" : offsetBox.Items[0].ToString();
+                string second = offsetBox == null || offsetBox.Items.Count < 2 ? "" : offsetBox.Items[1].ToString();
+                Check(first.Contains("自定义虚线") && first.Contains("宽2.5mm") && second.Contains("宽1.2mm"),
+                    "偏移线列表按有效线宽显示（自定义虚线 2.5mm、普通线 1.2mm；列出的是“" + first + " / " + second + "”）");
+                offsetEditor.Hide();
+            }
+
+            // 偏移线编辑器里也提示有效线宽，方便按实际宽度选偏移量
+            using (var oneOffset = LineOffsetEditor.Create(new LineOffset(0, dashOffsetLine)))
+            {
+                oneOffset.ShowInTaskbar = false;
+                oneOffset.Opacity = 0;
+                oneOffset.Show();
+                Application.DoEvents();
+                string info = AllControls(oneOffset).OfType<Label>().Select(l => l.Text)
+                    .FirstOrDefault(t => t != null && t.Contains("有效线宽"));
+                Check(info != null && info.Contains("2.5"),
+                    "偏移线编辑器显示有效线宽（" + (info ?? "（没有这个提示）") + "）");
+                oneOffset.Hide();
+            }
+
+            // 画出来验证：偏移线里的自定义虚线按该段自己的线宽画，而不是外层符号的 Size（0.35）
+            var offsetDashSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.35 };
+            var wideDash = new SimpleLineSymbol { Color = Color.Black, Size = 0.35 };
+            wideDash.DashElements.Add(new LineDashElement { Length = 40, Color = Color.Black, Width = 2 });
+            offsetDashSymbol.Offsets.Add(new LineOffset(0, wideDash));
+            using (Bitmap offsetInk = DrawLineSample(offsetDashSymbol))
+            {
+                Rectangle ink = InkBounds(offsetInk, Color.White);
+                Check(ink.Height >= 6 && ink.Height <= 10,
+                    "偏移线里的自定义虚线按该段自己的线宽绘制：2 毫米 ≈ 7.6 像素（实测墨迹高 " + ink.Height
+                    + " 像素，而不是外层符号的 0.35 毫米）");
+            }
+        }
+
         // 2) 分带选择：UTM 经度带 × 纬度行、球体控件与分带数学
         Check(UtmGridZone.RowCount == 20 && UtmGridZone.RowLetters == "CDEFGHJKLMNPQRSTUVWX",
             "UTM纬度行为C~X共20行且不含I/O");
