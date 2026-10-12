@@ -526,12 +526,15 @@ namespace GIS.Display
                 foreach (LineOffset offset in symbol.Offsets)
                 {
                     if (offset == null || offset.Line == null) continue;
-                    PointF[] shifted = OffsetPolyline(pts, (float)ToPixels(offset.Offset, dpm));
+                    float offsetPx = (float)ToPixels(offset.Offset, dpm);
                     if (offset.Line.HasCustomDash)
-                        DrawCustomDash(g, shifted, offset.Line, dpm);
+                        // 自定义虚线：**图案统一在基准线上排布**，每条偏移线只是把自己那些段整体平移过去
+                        // （而不是先平移折线再各排各的图案）。这样各条偏移线的虚实分界落在同一位置上，
+                        // 段长也完全一致；否则拐角处内外侧长度不同会累积相位差，小比例尺下就错开了。
+                        DrawCustomDash(g, pts, offset.Line, dpm, offsetPx);
                     else
                         using (Pen pen = LinePen(offset.Line, dpm))
-                            g.DrawLines(pen, shifted);
+                            g.DrawLines(pen, OffsetPolyline(pts, offsetPx));
                 }
                 return;
             }
@@ -546,16 +549,67 @@ namespace GIS.Display
         private static PointF[] OffsetPolyline(PointF[] pts, float offset)
         {
             if (offset == 0 || pts == null || pts.Length < 2) return pts;
-            var result = new PointF[pts.Length];
-            for (int i = 0; i < pts.Length; i++)
+            int count = pts.Length;
+            var result = new PointF[count];
+            for (int i = 0; i < count; i++)
             {
+                // 找“离本顶点足够远”的前后各一个顶点来确定方向。
+                // 小比例尺下相邻顶点经常落在同一个像素上（方向向量为 0），
+                // 若直接对它们求方向会得到零法线 → 该顶点根本不平移，偏移线就与原线重合、彼此也对不齐。
+                int before = -1, after = -1;
+                for (int k = i - 1; k >= 0; k--) if (DistanceOf(pts[k], pts[i]) > OffsetMinSegment) { before = k; break; }
+                for (int k = i + 1; k < count; k++) if (DistanceOf(pts[k], pts[i]) > OffsetMinSegment) { after = k; break; }
+
+                PointF beforeNormal = PointF.Empty, afterNormal = PointF.Empty;
+                bool hasBefore = before >= 0 && UnitLeftNormal(pts[before], pts[i], out beforeNormal);
+                bool hasAfter = after >= 0 && UnitLeftNormal(pts[i], pts[after], out afterNormal);
+
                 PointF normal;
-                if (i == 0) normal = NormalOf(pts[1], pts[0]);
-                else if (i == pts.Length - 1) normal = NormalOf(pts[i], pts[i - 1]);
-                else normal = NormalOf(pts[i + 1], pts[i - 1]);
-                result[i] = new PointF(pts[i].X + normal.X * offset, pts[i].Y + normal.Y * offset);
+                float scale = 1f;
+                if (hasBefore && hasAfter)
+                {
+                    // 取两段法线的角平分线方向，并按 1/cos(半角) 放大（斜接）：
+                    // 这样偏移后的顶点到两条相邻边的**垂距都等于 offset**，
+                    // 各条偏移线才是真正的平行线（否则拐角处会缩水，内/外侧缩水还不一样，看起来就没对齐）。
+                    float sx = beforeNormal.X + afterNormal.X, sy = beforeNormal.Y + afterNormal.Y;
+                    float length = (float)Math.Sqrt(sx * sx + sy * sy);
+                    if (length < 1e-4f) normal = beforeNormal;              // 近似折返（约 180°）
+                    else
+                    {
+                        normal = new PointF(sx / length, sy / length);
+                        float cos = normal.X * beforeNormal.X + normal.Y * beforeNormal.Y;
+                        scale = cos > 1f / OffsetMiterLimit ? 1f / cos : OffsetMiterLimit;
+                    }
+                }
+                else if (hasAfter) normal = afterNormal;
+                else if (hasBefore) normal = beforeNormal;
+                else { result[i] = pts[i]; continue; }                      // 整条折线退化成一个点：保持原样
+
+                result[i] = new PointF(pts[i].X + normal.X * offset * scale, pts[i].Y + normal.Y * offset * scale);
             }
             return result;
+        }
+
+        /// <summary>斜接（miter）限幅：尖角处最多把顶点沿角平分线放大到这个倍数，避免出现过长的尖刺。</summary>
+        private const float OffsetMiterLimit = 4f;
+
+        /// <summary>判断“两个屏幕顶点是否重合”的最小距离（像素）。</summary>
+        private const float OffsetMinSegment = 1e-4f;
+
+        private static float DistanceOf(PointF a, PointF b)
+        {
+            float dx = a.X - b.X, dy = a.Y - b.Y;
+            return (float)Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        /// <summary>由 from→to 求单位左法线；两点重合（退化段）时返回 false。</summary>
+        private static bool UnitLeftNormal(PointF from, PointF to, out PointF normal)
+        {
+            float dx = to.X - from.X, dy = to.Y - from.Y;
+            float length = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (length <= OffsetMinSegment) { normal = PointF.Empty; return false; }
+            normal = new PointF(dy / length, -dx / length);      // 屏幕 y 轴向下：左侧 = (dy, -dx)
+            return true;
         }
 
         // 由 from→to 方向求单位法线。
@@ -592,7 +646,12 @@ namespace GIS.Display
         // 每段都用**填充带状多边形**画（而不是 GDI+ 画笔）：画笔的两端是圆头，会把每段画成
         // “半圆 + 矩形 + 半圆”，并且沿线的方向超出段长半个线宽（边框更宽、溢出更多）；
         // 填充方式得到的是端头平整的矩形/带状，正好限制在本段之内。
-        private static void DrawCustomDash(Graphics g, PointF[] pts, SimpleLineSymbol symbol, double dpm)
+        //
+        // perpendicularOffset：本段画完之后整体沿法线平移多少像素（画偏移线时用）。
+        // 注意图案是**在传入的这条折线上排布**的，偏移线传的是基准线 + 平移量，
+        // 因此各条偏移线的虚实分界与段长完全一致（拐角处也不会因内外侧长短不同而错开）。
+        private static void DrawCustomDash(Graphics g, PointF[] pts, SimpleLineSymbol symbol, double dpm,
+            float perpendicularOffset = 0f)
         {
             int n = symbol.DashElements.Count;
             if (n == 0) return;
@@ -631,6 +690,9 @@ namespace GIS.Display
                     double to = Math.Min(cursor + len, total);
                     // 该段的最终几何：水平偏移 → 延长 → 弧线 → 垂直偏移
                     PointF[] sub = ElementGeometry(pts, cum, cursor, to, element, dpm);
+                    // 偏移线：把这一段整体沿法线平移（图案本身仍在基准线上排布，见方法说明）
+                    if (sub != null && sub.Length >= 2 && perpendicularOffset != 0f)
+                        sub = OffsetPolyline(sub, perpendicularOffset);
                     if (sub != null && sub.Length >= 2)
                     {
                         if (casingWidths[i] > 0) FillRibbon(g, sub, casingWidths[i], casingColors[i]);

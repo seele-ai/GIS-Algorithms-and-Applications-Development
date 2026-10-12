@@ -177,6 +177,15 @@ internal static class Program
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
+    // 构造一条“自定义虚线”线符号：6 毫米实段 + 6 毫米空段（用于偏移线虚实对齐全检查）
+    private static SimpleLineSymbol Dashed(Color color)
+    {
+        var line = new SimpleLineSymbol { Color = color, Size = 0.5 };
+        line.DashElements.Add(new LineDashElement { Length = 6, Color = color, Width = 1.2 });
+        line.DashElements.Add(new LineDashElement { Length = 6, Color = Color.Transparent, Width = 0.01 });
+        return line;
+    }
+
     private static T FindControl<T>(Control parent) where T : Control
     {
         foreach (Control child in parent.Controls)
@@ -358,6 +367,144 @@ internal static class Program
                     "线符号偏移量绘制出多条平行线");
             }
         }
+
+        // 1c) 偏移线的几何：拐角处必须仍然与基准线**处处等距**（真正的平行线），
+        //     并且各条偏移线的虚实节奏对齐（按基准线的弧长排布），小比例尺下才不会错开。
+        {
+            // 带 90° 拐角的基准线：横臂 + 竖臂
+            var corner = Fixtures.MakePlanarLayer("折线", GeometryTypeConstant.LineString, null, "LINESTRING (20 50, 50 50, 50 80)");
+            var cornerSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.5 };
+            cornerSymbol.Offsets.Add(new LineOffset(2, new SimpleLineSymbol { Color = Color.Blue, Size = 0.8 }));
+            cornerSymbol.Offsets.Add(new LineOffset(-2, new SimpleLineSymbol { Color = Color.Red, Size = 0.8 }));
+            corner.Symbol = cornerSymbol;
+            using (var cornerMap = new MapControl { Size = new Size(400, 300) })
+            {
+                var cornerHandle = cornerMap.Handle;
+                cornerMap.AddLayer(corner);
+                cornerMap.SetExtent(new Envelope(0, 100, 0, 100));
+                Application.DoEvents();
+                int offsetPx = (int)Math.Round(2.0 / 1000.0 * cornerMap.Transform.Dpm);
+                ScreenPoint start = cornerMap.Transform.MapToScreen(new Coordinate(20, 50));
+                ScreenPoint bend = cornerMap.Transform.MapToScreen(new Coordinate(50, 50));
+                using (Bitmap image = Render(cornerMap))
+                {
+                    // 在横臂上取两列：靠起点、靠拐角（拐角处最容易因为法线/斜接算错而“缩水”）
+                    int[] columns = { start.X + 15, bend.X - 15 };
+                    int nearStart = -1, nearBend = -1, nearStartRed = -1, nearBendRed = -1;
+                    foreach (int column in columns)
+                    {
+                        int blueRow = -1, redRow = -1;
+                        for (int y = 0; y < image.Height; y++)
+                        {
+                            if (blueRow < 0 && ColorAt(image, new ScreenPoint(column, y), Color.Blue)) blueRow = y;
+                            if (redRow < 0 && ColorAt(image, new ScreenPoint(column, y), Color.Red)) redRow = y;
+                        }
+                        if (column == columns[0]) { nearStart = blueRow; nearStartRed = redRow; }
+                        else { nearBend = blueRow; nearBendRed = redRow; }
+                    }
+                    int blueGapStart = start.Y - nearStart, blueGapBend = start.Y - nearBend;
+                    int redGapStart = nearStartRed - start.Y, redGapBend = nearBendRed - start.Y;
+                    Check(Math.Abs(blueGapStart - blueGapBend) <= 1 && Math.Abs(redGapStart - redGapBend) <= 1,
+                        "偏移线在拐角处仍与基准线等距：+2mm 侧 " + blueGapStart + "→" + blueGapBend
+                        + " 像素、-2mm 侧 " + redGapStart + "→" + redGapBend + " 像素（前后一致，拐角不缩水）");
+                    Check(Math.Abs(blueGapStart - offsetPx) <= 1 && Math.Abs(redGapStart - offsetPx) <= 1
+                        && Math.Abs(blueGapBend - redGapBend) <= 1,
+                        "偏移线的偏移量就是设定值且两侧对称（2 毫米 ≈ " + offsetPx + " 像素，实测 "
+                        + blueGapStart + " / " + redGapStart + " 像素）");
+                }
+            }
+
+            // 小比例尺下大量顶点会落到同一个像素（甚至完全重合）：重合顶点也必须照常偏移，
+            // 否则该处法线为 0、顶点根本不平移，偏移线会“贴”回基准线，几条线之间也就对不齐了。
+            // 这里把三个重合顶点放在线的**中间**：旧实现会用“前后各取一个顶点”求方向，
+            // 前后两点恰好在同一位置 → 法线为 0 → 中间出现一个塌回基准线的凹口。
+            var dupLayer = Fixtures.MakePlanarLayer("重合顶点", GeometryTypeConstant.LineString, null,
+                "LINESTRING (20 50, 50 50, 50 50, 50 50, 80 50)");
+            var dupSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.5 };
+            dupSymbol.Offsets.Add(new LineOffset(2, new SimpleLineSymbol { Color = Color.Blue, Size = 0.8 }));
+            dupSymbol.Offsets.Add(new LineOffset(-2, new SimpleLineSymbol { Color = Color.Red, Size = 0.8 }));
+            dupLayer.Symbol = dupSymbol;
+            using (var dupMap = new MapControl { Size = new Size(400, 300) })
+            {
+                var dupHandle = dupMap.Handle;
+                dupMap.AddLayer(dupLayer);
+                dupMap.SetExtent(new Envelope(0, 100, 0, 100));
+                Application.DoEvents();
+                int dupOffsetPx = (int)Math.Round(2.0 / 1000.0 * dupMap.Transform.Dpm);
+                ScreenPoint dupStart = dupMap.Transform.MapToScreen(new Coordinate(20, 50));
+                ScreenPoint dupBend = dupMap.Transform.MapToScreen(new Coordinate(50, 50));
+                using (Bitmap image = Render(dupMap))
+                {
+                    string log = "";
+                    bool allSeparated = true;
+                    foreach (int column in new[] { dupStart.X + 20, dupBend.X, dupBend.X + 20 })
+                    {
+                        int blueRow = -1, redRow = -1;
+                        for (int y = 0; y < image.Height; y++)
+                        {
+                            if (blueRow < 0 && ColorAt(image, new ScreenPoint(column, y), Color.Blue)) blueRow = y;
+                            if (redRow < 0 && ColorAt(image, new ScreenPoint(column, y), Color.Red)) redRow = y;
+                        }
+                        int separation = redRow - blueRow;
+                        log += separation + " ";
+                        if (Math.Abs(separation - 2 * dupOffsetPx) > 3) allSeparated = false;
+                    }
+                    Check(allSeparated,
+                        "重合顶点（小比例尺下顶点挤在同一像素）也照常偏移：±2 毫米两条线在各处间距 "
+                        + log.Trim() + "像素（应约 " + (2 * dupOffsetPx) + "；法线为 0 时中间会塌回基准线）");
+                }
+            }
+
+            // 虚实节奏对齐：拐角后（竖臂上）两条偏移线的虚实分界必须落在同一位置
+            var dashCorner = Fixtures.MakePlanarLayer("折线虚线", GeometryTypeConstant.LineString, null, "LINESTRING (20 50, 50 50, 50 80)");
+            var dashCornerSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.5 };
+            dashCornerSymbol.Offsets.Add(new LineOffset(2, Dashed(Color.Blue)));
+            dashCornerSymbol.Offsets.Add(new LineOffset(-2, Dashed(Color.Red)));
+            dashCorner.Symbol = dashCornerSymbol;
+            using (var dashCornerMap = new MapControl { Size = new Size(400, 300) })
+            {
+                var dashCornerHandle = dashCornerMap.Handle;
+                dashCornerMap.AddLayer(dashCorner);
+                dashCornerMap.SetExtent(new Envelope(0, 100, 0, 100));
+                Application.DoEvents();
+                ScreenPoint bend = dashCornerMap.Transform.MapToScreen(new Coordinate(50, 50));
+                ScreenPoint top = dashCornerMap.Transform.MapToScreen(new Coordinate(50, 80));
+                int dashOffsetPx = (int)Math.Round(2.0 / 1000.0 * dashCornerMap.Transform.Dpm);
+                using (Bitmap image = Render(dashCornerMap))
+                {
+                    // 先在竖臂范围内找出两条偏移线各自的列（蓝=+2mm 在左、红=-2mm 在右），
+                    // 再逐行比较这一列上“实段/空段”的模式：对齐时两条线的模式应当一致。
+                    int armTop = Math.Min(bend.Y, top.Y) + 5, armBottom = Math.Max(bend.Y, top.Y) - 5;
+                    var blueColumns = new System.Collections.Generic.List<int>();
+                    var redColumns = new System.Collections.Generic.List<int>();
+                    for (int y = armTop; y <= armBottom; y++)
+                        for (int x = bend.X - 40; x <= bend.X + 40; x++)
+                        {
+                            if (ColorAt(image, new ScreenPoint(x, y), Color.Blue)) blueColumns.Add(x);
+                            if (ColorAt(image, new ScreenPoint(x, y), Color.Red)) redColumns.Add(x);
+                        }
+                    Check(blueColumns.Count > 20 && redColumns.Count > 20,
+                        "偏移线在竖臂上都画出了自定义虚线（蓝 " + blueColumns.Count + " 像素、红 " + redColumns.Count + " 像素）");
+                    blueColumns.Sort();
+                    redColumns.Sort();
+                    int blueX = blueColumns[blueColumns.Count / 2], redX = redColumns[redColumns.Count / 2];
+                    int mismatches = 0, sampled = 0, inkRows = 0;
+                    for (int y = armTop; y <= armBottom; y++)
+                    {
+                        bool blue = InkAt(image, blueX, y), red = InkAt(image, redX, y);
+                        sampled++;
+                        if (blue != red) mismatches++;
+                        if (blue) inkRows++;
+                    }
+                    Check(inkRows < sampled * 9 / 10, "偏移线的自定义虚线确实有间隔（实段 " + inkRows + "/" + sampled + " 行）");
+                    Check(mismatches <= sampled / 8,
+                        "偏移线的虚实节奏按基准线对齐：拐角后的竖臂上两条偏移线的实/空模式不一致的行只占 "
+                        + (mismatches * 100 / sampled) + "%（错开时相位差约 " + (2 * dashOffsetPx)
+                        + " 像素，会不一致到六成以上）");
+                }
+            }
+        }
+
 
         // 1b) 偏移线用自定义虚线时，“宽度”必须是最宽的那一段（含边框），不能还是 Size：
         //     否则界面显示的宽度、以及“增加偏移线”的自动间距都按 Size 算，偏移线会互相压住。
