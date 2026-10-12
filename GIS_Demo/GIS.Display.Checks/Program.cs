@@ -1213,7 +1213,53 @@ internal static class Program
             }
         }
 
+        // 3.3f) 普通线型（实线/虚线/点线）也用**平头**：
+        //       圆头会让整条线沿线方向长出半个线宽、每个虚线段/点线的端头变成尖的（半圆）。
+        using (var plainMap = new MapControl { Size = new Size(400, 300) })
+        {
+            var plainHandle = plainMap.Handle;
+            var plainLayer = Fixtures.MakePlanarLayer("平头线", GeometryTypeConstant.LineString, null, "LINESTRING (20 50, 80 50)");
+            plainMap.AddLayer(plainLayer);
+            plainMap.SetExtent(new Envelope(0, 100, 0, 100));
+            Application.DoEvents();
+            const double plainSize = 5;                 // 5 毫米 ≈ 18.9 像素：圆头会多出 9.4 像素
+            int plainY = plainMap.Transform.MapToScreen(new Coordinate(50, 50)).Y;
+            int plainSpan = plainMap.Transform.MapToScreen(new Coordinate(80, 50)).X
+                - plainMap.Transform.MapToScreen(new Coordinate(20, 50)).X;
 
+            plainLayer.Symbol = new SimpleLineSymbol { Color = Color.Black, Size = plainSize };
+            Application.DoEvents();
+            using (Bitmap solid = Render(plainMap))
+            {
+                Rectangle ink = InkBounds(solid, Color.White);
+                Check(Math.Abs(ink.Width - plainSpan) <= 3,
+                    "实线用平头：5 毫米粗的线画出来 " + ink.Width + " 像素，与两端跨度 " + plainSpan
+                    + " 像素一致（圆头会多出约 19 像素）");
+            }
+
+            foreach (SimpleLineSymbolStyleConstant style in new[]
+                { SimpleLineSymbolStyleConstant.Dash, SimpleLineSymbolStyleConstant.Dot })
+            {
+                plainLayer.Symbol = new SimpleLineSymbol { Color = Color.Black, Size = plainSize, Style = style };
+                Application.DoEvents();
+                using (Bitmap dashed = Render(plainMap))
+                {
+                    int start, run;
+                    FirstInkRun(dashed, plainY, out start, out run);
+                    int middleInk = 0, endInk = 0;
+                    for (int y = 0; y < dashed.Height; y++)
+                    {
+                        if (InkAt(dashed, start + run / 2, y)) middleInk++;
+                        if (InkAt(dashed, start + run - 1, y)) endInk++;
+                    }
+                    Check(run > 5 && middleInk >= 8 && endInk >= middleInk - 1,
+                        (style == SimpleLineSymbolStyleConstant.Dash ? "虚线" : "点线") + "用平头：每段端头是方的（端头列墨迹 "
+                        + endInk + " 像素、中间列 " + middleInk + " 像素；圆头端头会是尖的）");
+                }
+            }
+        }
+
+        // 3.3d) 自定义虚线的边框（casing）必须画在**线宽的两端**：
         //       边框宽度是“线宽两侧各加多少毫米”，因此总宽 = 线宽 + 2×边框宽。
         //       （此前直接把边框宽当总宽用，边框反而比线还细，肉眼看不出“包住”的效果。）
         {

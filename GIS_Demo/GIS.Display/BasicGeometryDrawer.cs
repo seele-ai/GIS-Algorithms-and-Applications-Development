@@ -570,14 +570,20 @@ namespace GIS.Display
             return new PointF(dy / len, -dx / len);
         }
 
+        // 普通线型（实线/虚线/点线）的画笔：**端头一律用 Flat（平头）**。
+        // 圆头（Round）会让每一条线/每一个虚线段沿线方向多出半个线宽，端头还是半圆；
+        // 平头则严格止于端点，虚线段与点线画出来就是方正的短块，与自定义虚线的填充带来回一致。
+        // 折点仍用 Round 连接（只在拐角处过渡，不会溢出）。
         private static Pen LinePen(SimpleLineSymbol symbol, double dpm)
         {
             var pen = new Pen(symbol.Color, (float)Math.Max(0.5, ToPixels(symbol.Size, dpm)));
             pen.DashStyle = symbol.Style == SimpleLineSymbolStyleConstant.Dash ? DashStyle.Dash :
                 symbol.Style == SimpleLineSymbolStyleConstant.Dot ? DashStyle.Dot : DashStyle.Solid;
             pen.LineJoin = LineJoin.Round;
-            pen.StartCap = LineCap.Round;
-            pen.EndCap = LineCap.Round;
+            pen.StartCap = LineCap.Flat;
+            pen.EndCap = LineCap.Flat;
+            // GDI+ 对“非实线”的画笔不看 StartCap/EndCap，虚线段/点线的端头由 DashCap 决定，这里显式指定平头
+            pen.DashCap = DashCap.Flat;
             return pen;
         }
 
@@ -682,12 +688,13 @@ namespace GIS.Display
             return new PointF(dy / length, -dx / length);   // 左法线
         }
 
+        // 端点竖线的画笔：同样用平头，短划线的长度才正好是 TickLength（圆头会多出半个线宽）
         private static Pen MakeLinePen(Color color, double mmWidth, double dpm)
         {
             var pen = new Pen(color, (float)Math.Max(0.5, ToPixels(mmWidth, dpm)));
             pen.LineJoin = LineJoin.Round;
-            pen.StartCap = LineCap.Round;
-            pen.EndCap = LineCap.Round;
+            pen.StartCap = LineCap.Flat;
+            pen.EndCap = LineCap.Flat;
             return pen;
         }
 
