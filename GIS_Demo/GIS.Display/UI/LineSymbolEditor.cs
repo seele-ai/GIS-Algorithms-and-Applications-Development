@@ -21,6 +21,9 @@ namespace GIS.Display.UI
         private readonly ListBox offsetList = new ListBox { Width = PanelWidth, Height = 90, HorizontalScrollbar = true };
         private readonly Panel preview = new Panel { Size = new Size(PanelWidth, 80), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White };
         private readonly List<LineDashElement> savedDash = new List<LineDashElement>();   // 取消勾选时暂存的虚线图案
+        private readonly CheckBox useOffsetsCheck = new CheckBox { Text = "使用多条偏移线（一个图层画出多条平行线）", Width = PanelWidth };
+        private readonly List<LineOffset> savedOffsets = new List<LineOffset>();         // 取消勾选时暂存的偏移线
+        private Panel offsetPanel;                                                       // 偏移线模块（勾选后才显示）
 
         private LineSymbolEditor(SimpleLineSymbol source)
         {
@@ -81,11 +84,38 @@ namespace GIS.Display.UI
             };
             customCheck.Checked = symbol.HasCustomDash;   // 触发上面的事件，正确打开/关闭自定义虚线面板
 
-            // 多线符号（偏移线）面板：一条线画出多条平行线，可用于国界线
-            var offsetPanel = new Panel { Dock = DockStyle.Top, Height = 154 };
+            useOffsetsCheck.CheckedChanged += (s, e) =>
+            {
+                if (useOffsetsCheck.Checked)
+                {
+                    // 重新勾选：优先恢复取消勾选前的偏移线，否则新建一条默认偏移线（偏移量 0）
+                    if (symbol.Offsets.Count == 0)
+                    {
+                        if (savedOffsets.Count > 0)
+                            foreach (LineOffset o in savedOffsets) symbol.Offsets.Add(o.Clone());
+                        else
+                            symbol.Offsets.Add(new LineOffset(0, (SimpleLineSymbol)symbol.Clone()));
+                    }
+                }
+                else
+                {
+                    // 取消勾选必须清空偏移线集合：是否按偏移线绘制取决于该集合是否为空
+                    savedOffsets.Clear();
+                    foreach (LineOffset o in symbol.Offsets) savedOffsets.Add(o.Clone());
+                    symbol.Offsets.Clear();
+                }
+                offsetPanel.Visible = useOffsetsCheck.Checked;
+                RebuildOffsetList();
+                RefreshPreview();
+            };
+
+            // 多线符号（偏移线）面板：一条线画出多条平行线，可用于国界线。
+            // 与“使用自定义虚线”一致，先勾选“使用多条偏移线”才显示（并启用）下面的偏移线模块；
+            // 取消勾选时清空偏移线（取消前暂存，重新勾选可恢复），这样能干净地切回单线。
+            offsetPanel = new Panel { Dock = DockStyle.Top, Height = 154 };
             var offsetHint = new Label
             {
-                Text = "偏移线（毫米，正左负右）：设置了偏移线后按各条线绘制，本条线符号仅作为模板",
+                Text = "设置后按各条偏移线分别绘制（本条线符号只作为第一条线的模板）：偏移量单位为毫米，正=线左侧",
                 Location = new System.Drawing.Point(0, 0),
                 Size = new Size(PanelWidth, 18),
                 ForeColor = Color.FromArgb(90, 90, 90)
@@ -102,6 +132,10 @@ namespace GIS.Display.UI
             offsetPanel.Controls.Add(offsetList);
             offsetPanel.Controls.Add(offsetBtns);
             offsetList.DoubleClick += (s, e) => EditOffset();
+            // 勾选框状态决定偏移线面板是否显示（与“使用自定义虚线”同样的交互）：
+            // 必须放在 offsetPanel 建好之后，否则事件处理里访问 offsetPanel 会报空引用。
+            useOffsetsCheck.Checked = symbol.HasOffsets;
+            offsetPanel.Visible = useOffsetsCheck.Checked;   // 未勾选时整个偏移线模块不显示
 
             preview.Paint += (s, e) => BasicGeometryDrawer.DrawSymbol(e.Graphics, symbol, preview.ClientRectangle);
 
@@ -114,6 +148,8 @@ namespace GIS.Display.UI
             grid.Controls.Add(size, 1, 2);
             grid.Controls.Add(customCheck, 0, 3);
             grid.SetColumnSpan(customCheck, 2);
+            grid.Controls.Add(useOffsetsCheck, 0, 4);
+            grid.SetColumnSpan(useOffsetsCheck, 2);
 
             var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
             var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
@@ -277,6 +313,9 @@ namespace GIS.Display.UI
         /// <summary>创建线符号编辑器窗口（对话框与自动检查共用，避免两处布局不一致）。</summary>
         public static LineSymbolEditor Create(SimpleLineSymbol source) => new LineSymbolEditor(source);
 
+        /// <summary>当前正在编辑的符号（窗口未点“确定”时也能取到编辑结果，供自动检查验证交互）。</summary>
+        public SimpleLineSymbol EditedSymbol => symbol;
+
         public static SimpleLineSymbol Edit(IWin32Window owner, SimpleLineSymbol source)
         {
             using (var f = Create(source))
@@ -344,7 +383,7 @@ namespace GIS.Display.UI
             grid.Controls.Add(new Label { Text = "线段颜色", AutoSize = true }, 0, 1); grid.Controls.Add(colorBtn, 1, 1);
             grid.Controls.Add(new Label { Text = "线段宽度（毫米）", AutoSize = true }, 0, 2); grid.Controls.Add(width, 1, 2);
             grid.Controls.Add(new Label { Text = "边框颜色", AutoSize = true }, 0, 3); grid.Controls.Add(outlineBtn, 1, 3);
-            grid.Controls.Add(new Label { Text = "边框宽度（毫米，0=无）", AutoSize = true }, 0, 4); grid.Controls.Add(outlineWidth, 1, 4);
+            grid.Controls.Add(new Label { Text = "边框宽度（毫米，0=无；在线宽两侧各加此宽度）", AutoSize = true }, 0, 4); grid.Controls.Add(outlineWidth, 1, 4);
             grid.Controls.Add(new Label { Text = "端点垂线长度（毫米，0=无）", AutoSize = true }, 0, 5); grid.Controls.Add(tickLength, 1, 5);
             grid.Controls.Add(new Label { Text = "端点垂线颜色", AutoSize = true }, 0, 6); grid.Controls.Add(tickBtn, 1, 6);
 

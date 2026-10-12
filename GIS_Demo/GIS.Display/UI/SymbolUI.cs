@@ -8,14 +8,13 @@ namespace GIS.Display.UI
     /// <summary>符号相关的 UI 辅助方法。</summary>
     public static class SymbolUI
     {
-        /// <summary>生成指定几何类型对应的默认符号。</summary>
+        /// <summary>
+        /// 生成指定几何类型对应的默认符号。必须与地图用的默认符号一致、且**每次结果相同**
+        /// （符号的构造函数会给随机颜色，若这里每次新建，图层面板里的符号会随重绘而变色）。
+        /// </summary>
         public static Symbol DefaultFor(GeometryTypeConstant type)
         {
-            if (type == GeometryTypeConstant.Point || type == GeometryTypeConstant.MultiPoint)
-                return new SimpleMarkerSymbol("默认符号");
-            if (type == GeometryTypeConstant.LineString || type == GeometryTypeConstant.MultiLineString)
-                return new SimpleLineSymbol("默认符号");
-            return new SimpleFillSymbol("默认符号");
+            return BasicGeometryDrawer.DefaultSymbol(type);
         }
 
         /// <summary>生成符号预览位图。</summary>

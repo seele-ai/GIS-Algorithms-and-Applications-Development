@@ -61,6 +61,10 @@ namespace GIS.Display
         {
             if (layer == null || layer.FeatureClass == null) throw new ArgumentNullException(nameof(layer));
             if (layers.Contains(layer)) return;
+            // 图层若没有设置过符号/渲染器（例如刚导入的 shp），立刻绑定一个默认符号：
+            // 地图与图层面板从此共用同一个符号对象，既不会“面板显示与地图不一致”，
+            // 也不会因为面板重绘而重新生成随机颜色的符号（表现为“符号随上下移动而改变”）。
+            BasicGeometryDrawer.EnsureDefaultSymbol(layer);
             layers.Add(layer);
             selections.Add(layer, new Features());
             LayersChanged?.Invoke(this, EventArgs.Empty);

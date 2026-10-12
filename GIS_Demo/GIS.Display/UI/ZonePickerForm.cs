@@ -768,11 +768,18 @@ namespace GIS.Display.UI
                 degreeBox.SelectedIndexChanged += (s, e) =>
                 {
                     if (sync) return;
-                    globe.Kind = degreeBox.SelectedIndex == 0 ? ZoneSystem.GaussKruger3 : ZoneSystem.GaussKruger6;
+                    // 切换 3 度带 / 6 度带时必须**重算带号**，不能沿用原来的数字：
+                    // 两种分带的带号含义完全不同（例如 3 度带第 39 带与 6 度带第 20 带的中央经线都是 117°E）。
+                    // 这里按“保持中央经线不变”换算，因此切换前后所选位置不会跳走。
+                    ZoneSystem oldKind = globe.Kind;
+                    int oldZone = globe.Zone;
+                    ZoneSystem newKind = degreeBox.SelectedIndex == 0 ? ZoneSystem.GaussKruger3 : ZoneSystem.GaussKruger6;
+                    int newZone = ZoneGlobe.ZoneOf(newKind, ZoneGlobe.ZoneCentral(oldKind, oldZone));
+                    globe.Kind = newKind;
                     sync = true;
                     zoneBox.Minimum = ZoneGlobe.MinZone(globe.Kind);
-                zoneBox.Maximum = ZoneGlobe.MaxZone(globe.Kind);
-                    if (zoneBox.Value > zoneBox.Maximum) zoneBox.Value = zoneBox.Maximum;
+                    zoneBox.Maximum = ZoneGlobe.MaxZone(globe.Kind);
+                    zoneBox.Value = Math.Max(zoneBox.Minimum, Math.Min(zoneBox.Maximum, newZone));
                     sync = false;
                     globe.Zone = (int)zoneBox.Value;
                     CenterOnSelection();

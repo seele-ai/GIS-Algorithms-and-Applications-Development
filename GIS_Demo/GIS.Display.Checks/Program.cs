@@ -68,21 +68,19 @@ internal static class Program
                 form.Opacity = 0;
                 form.Show();
                 Application.DoEvents();
-                Check(form.Map.Layers.Count == 0, "启动时不加载案例");
-                var imported = new Layer(new FeatureClass("外部图层", GeometryTypeConstant.Point));
+                Check(form.Map.Layers.Count == 0, "启动时不加载任何图层（案例/演示功能已删除）");
+                Check(FindControl<ToolStrip>(form).Items.OfType<ToolStripButton>().All(b => !b.Text.Contains("案例")),
+                    "工具条不再提供“显示/隐藏案例”“重置案例”按钮");
+                var imported = new Layer(new FeatureClass("导入图层", GeometryTypeConstant.Point));
                 form.Map.AddLayer(imported);
-                form.ToggleSamples();
-                Check(form.Map.Layers.Count == 7, "显示案例保留外部图层");
-                form.ToggleSamples();
-                Check(form.Map.Layers.Count(l => l.Visible) == 1 && imported.Visible, "隐藏案例不影响外部图层");
-                form.LoadSamples();
-                Check(form.Map.Layers.Count == 7 && form.Map.Layers.Contains(imported), "重置案例保留外部图层");
-                form.Map.RemoveLayer(imported);
-                Check(form.Map.Layers.Count == 6, "演示程序加载6个样例图层");
-                Check(form.Map.Layers.Sum(l => l.FeatureClass.Features.Count) == 12, "演示程序包含12个样例要素");
+                Check(imported.Symbol != null, "加入图层时自动绑定默认符号（图层面板与地图用同一个符号对象）");
+                // 用自检夹具图层撑起后面的投影 / 外包矩形 / 面板检查（原来靠演示程序的样例图层）
+                var fixtureLayers = Fixtures.GeoLayers().ToList();
+                foreach (Layer layer in fixtureLayers) { layer.CaptureGeographic(null); form.Map.AddLayer(layer); }
+                Check(form.Map.Layers.Count == fixtureLayers.Count + 1, "添加图层后地图图层数正确");
                 Check(form.Map.Visible && form.Map.Width > 500 && form.Map.Height > 250, "地图控件可见且布局尺寸有效");
                 var manager = FindControl<LayerManagerControl>(form);
-                Check(manager.LayerRows.Count == 6, "图层面板列出6个图层");
+                Check(manager.LayerRows.Count == fixtureLayers.Count + 1, "图层面板列出全部图层");
                 Check(manager.LayerRows[0].Layer == form.Map.Layers.Last(), "图层面板按顶层优先列出");
                 var firstRow = manager.LayerRows[0];
                 firstRow.ToggleVisible();
@@ -152,6 +150,19 @@ internal static class Program
                     if (!form.Map.GetExtent().Contains(expected)) allVisible = false;
                 }
                 Check(allVisible, "切换投影后视图自动对准所有图层（要素始终在视野内）");
+                // 右下角坐标显示：投影坐标按国内测量习惯 X = 纵坐标（北向）、Y = 横坐标（东向）
+                projectionCombo.SelectedIndex = 1;
+                form.Map.Refresh();
+                Coordinate gkCentre = form.DataExtentLngLat().Center;
+                Coordinate gkProjected = ProjGauss_Kruger.Create(Ellipsoids.WGS84, 39, true).TransferToProjCo(gkCentre);
+                form.ShowPosition(gkProjected);
+                var statusStrip = FindControl<StatusStrip>(form);
+                string positionText = statusStrip == null ? null : statusStrip.Items.OfType<ToolStripStatusLabel>()
+                    .Select(item => item.Text).FirstOrDefault(t => t != null && t.Contains("X（纵"));
+                Check(positionText != null
+                    && positionText.Contains("X（纵·北）" + gkProjected.Y.ToString("F1"))
+                    && positionText.Contains("Y（横·东）" + gkProjected.X.ToString("F1")),
+                    "右下角投影坐标按测量习惯显示：X=纵（北向）、Y=横（东向）（" + positionText + "）");
                 projectionCombo.SelectedIndex = 0;
                 using (var image = new Bitmap(form.Width, form.Height))
                 {
@@ -184,7 +195,7 @@ internal static class Program
             var handle = map.Handle;
             map.FullExtent();
             Check(map.GetExtent().Width > 0, "空地图全图操作安全");
-            var layer = SampleData.MakePlanarLayer("点", GeometryTypeConstant.Point, null, "POINT (20 20)", "POINT (80 80)");
+            var layer = Fixtures.MakePlanarLayer("点", GeometryTypeConstant.Point, null, "POINT (20 20)", "POINT (80 80)");
             map.AddLayer(layer);
             map.AddLayer(layer);
             Check(map.Layers.Count == 1, "同一图层不重复添加");
@@ -254,7 +265,7 @@ internal static class Program
             Check(map.GetSelection(layer).Count == 1, "反向拖框正确选中");
             Check(map.RemoveLayer(layer) && map.Layers.Count == 0, "移除图层");
             map.FullExtent();
-            map.AddLayer(SampleData.MakePlanarLayer("单点", GeometryTypeConstant.Point, null, "POINT (10 10)"));
+            map.AddLayer(Fixtures.MakePlanarLayer("单点", GeometryTypeConstant.Point, null, "POINT (10 10)"));
             map.FullExtent();
             Check(map.GetExtent().Contains(new Coordinate(10, 10)) && map.GetExtent().Width > 0, "单点图层全图范围");
             map.SetExtent(new Envelope(0, 100, 10, 10));
@@ -270,7 +281,7 @@ internal static class Program
         using (var map = new MapControl { Size = new Size(600, 400) })
         {
             var handle = map.Handle;
-            var polygon = SampleData.MakePlanarLayer("带洞", GeometryTypeConstant.Polygon,
+            var polygon = Fixtures.MakePlanarLayer("带洞", GeometryTypeConstant.Polygon,
                 new SimpleFillSymbol { Color = Color.Red, Outline = new SimpleLineSymbol { Color = Color.Red } },
                 "POLYGON ((10 10, 90 10, 90 90, 10 90, 10 10), (40 40, 60 40, 60 60, 40 60, 40 40))");
             map.AddLayer(polygon);
@@ -287,7 +298,7 @@ internal static class Program
             map.SelectAt(solid, SelectMethodConstant.CreateNew);
             Check(map.GetSelection(polygon).Count == 1, "多边形实体内选中");
             map.ClearSelection();
-            var top = SampleData.MakePlanarLayer("上层", GeometryTypeConstant.Polygon,
+            var top = Fixtures.MakePlanarLayer("上层", GeometryTypeConstant.Polygon,
                 new SimpleFillSymbol { Color = Color.Blue, Outline = new SimpleLineSymbol { Color = Color.Blue } },
                 "POLYGON ((15 15, 35 15, 35 35, 15 35, 15 15))");
             map.AddLayer(top);
@@ -301,13 +312,13 @@ internal static class Program
             using (Bitmap image = Render(map)) Check(custom.Calls == 1, "模块3渲染接口仅接收可见图层");
             map.Renderer = new BasicGeometryDrawer();
             foreach (Layer layer in map.Layers.ToArray()) map.RemoveLayer(layer);
-            foreach (Layer layer in SampleData.Create()) map.AddLayer(layer);
+            foreach (Layer layer in Fixtures.GeoLayers()) map.AddLayer(layer);
             map.FullExtent();
             using (Bitmap image = Render(map))
                 Check(image.Width == 600, "六种几何类型样例绘制成功");
             // 用像素检查复合面的独立部件，防止意外连接为一个面。
             foreach (Layer layer in map.Layers.ToArray()) map.RemoveLayer(layer);
-            var multiple = SampleData.MakePlanarLayer("多个部件", GeometryTypeConstant.MultiPolygon,
+            var multiple = Fixtures.MakePlanarLayer("多个部件", GeometryTypeConstant.MultiPolygon,
                 new SimpleFillSymbol { Color = Color.Green, Outline = new SimpleLineSymbol { Color = Color.Green } },
                 "MULTIPOLYGON (((10 10, 30 10, 30 30, 10 30, 10 10)), ((70 70, 90 70, 90 90, 70 90, 70 70)))");
             map.AddLayer(multiple);
@@ -332,7 +343,7 @@ internal static class Program
             symbol.Offsets.Add(new LineOffset(0, new SimpleLineSymbol { Color = Color.Black, Size = 0.35 }));
             symbol.Offsets.Add(new LineOffset(2, new SimpleLineSymbol { Color = Color.Red, Size = 1 }));
             symbol.Offsets.Add(new LineOffset(-2, new SimpleLineSymbol { Color = Color.Blue, Size = 1 }));
-            var line = SampleData.MakePlanarLayer("国界", GeometryTypeConstant.LineString, symbol, "LINESTRING (10 50, 90 50)");
+            var line = Fixtures.MakePlanarLayer("国界", GeometryTypeConstant.LineString, symbol, "LINESTRING (10 50, 90 50)");
             map.AddLayer(line);
             map.SetExtent(new Envelope(0, 100, 0, 100));
             int offset = (int)Math.Round(2.0 / 1000.0 * map.Transform.Dpm);
@@ -636,7 +647,7 @@ internal static class Program
         using (var labelMap = new MapControl { Size = new Size(420, 320) })
         {
             var labelHandle = labelMap.Handle;
-            var pointLayer = SampleData.MakePlanarLayer("注记点", GeometryTypeConstant.Point,
+            var pointLayer = Fixtures.MakePlanarLayer("注记点", GeometryTypeConstant.Point,
                 new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
             pointLayer.LabelRenderer = new LabelRenderer
             {
@@ -708,7 +719,7 @@ internal static class Program
             pointLayer.LabelRenderer.TextSymbol.UseMask = false;
 
             labelMap.RemoveLayer(pointLayer);
-            var lineLayer = SampleData.MakePlanarLayer("注记线", GeometryTypeConstant.LineString,
+            var lineLayer = Fixtures.MakePlanarLayer("注记线", GeometryTypeConstant.LineString,
                 new SimpleLineSymbol { Color = Color.Blue, Size = 1 }, "LINESTRING (10 60, 90 60)");
             lineLayer.LabelRenderer = new LabelRenderer
             {
@@ -730,7 +741,7 @@ internal static class Program
             }
 
             labelMap.RemoveLayer(lineLayer);
-            var areaLayer = SampleData.MakePlanarLayer("注记面", GeometryTypeConstant.Polygon,
+            var areaLayer = Fixtures.MakePlanarLayer("注记面", GeometryTypeConstant.Polygon,
                 new SimpleFillSymbol { Color = Color.FromArgb(60, Color.Blue) }, "POLYGON ((10 10, 90 10, 90 90, 10 90, 10 10))");
             areaLayer.LabelRenderer = new LabelRenderer
             {
@@ -786,7 +797,7 @@ internal static class Program
             var avoidHandle = avoidMap.Handle;
             var wkts = new System.Collections.Generic.List<string>();
             for (int i = 0; i < 8; i++) wkts.Add("POINT (" + (50 + i * 0.05).ToString("0.##") + " 50)");
-            var crowded = SampleData.MakePlanarLayer("密集注记点", GeometryTypeConstant.Point,
+            var crowded = Fixtures.MakePlanarLayer("密集注记点", GeometryTypeConstant.Point,
                 new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, wkts.ToArray());
             crowded.LabelRenderer = new LabelRenderer
             {
@@ -814,7 +825,7 @@ internal static class Program
 
         // 3.7.3 注记设置窗口：按钮齐备、“应用”立即写回图层、“取消”回滚、预览随设置变化
         {
-            var formLayer = SampleData.MakePlanarLayer("注记窗口", GeometryTypeConstant.Point,
+            var formLayer = Fixtures.MakePlanarLayer("注记窗口", GeometryTypeConstant.Point,
                 new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
             int appliedCount = 0;
             using (var form = LabelRendererForm.Create(formLayer, () => appliedCount++))
@@ -875,8 +886,7 @@ internal static class Program
             var boxSize = new SizeF(90, 20);
             var centre = new PointF(210, 160);
             const float radius = 7.6f, gap = 3f, near = 1.2f;
-            float axis = radius + gap;                     // 每个轴上的偏移量
-            float diagonal = (float)(axis * Math.Sqrt(2)); // 最近角到要素中心的距离（斜向）
+            float expected = Math.Min(radius + gap, LabelPlacer.MaxAnchorDistance);   // 最近角到要素中心的距离
             bool allQuadrants = true, allAngles = true, sameAsFlat = true;
             var angles = new[] { 0.0, 10.0, 30.0, 45.0, 90.0, -45.0, 135.0 };
             foreach (double angle in angles)
@@ -895,21 +905,18 @@ internal static class Program
                         float d = (float)Math.Sqrt((v.X - centre.X) * (v.X - centre.X) + (v.Y - centre.Y) * (v.Y - centre.Y));
                         if (d < nearest) { nearest = d; nearestPoint = v; }
                     }
-                    // 最近角与要素中心的距离应恰好是 √(dx²+dy²)（即贴住要素外侧的偏移点）
-                    if (Math.Abs(nearest - diagonal) > near) allQuadrants = false;
+                    // 最近角与要素中心的距离应恰好是「符号半径 + 间隙」（不是它的 √2 倍）
+                    if (Math.Abs(nearest - expected) > near) allQuadrants = false;
                     // 且该角确实落在期望的方位上（右/左、上/下）
                     bool right = nearestPoint.X > centre.X, top = nearestPoint.Y < centre.Y;
                     if (right != expectRight[i] || top != expectTop[i]) allAngles = false;
                     // 角度为 0 时，最近角必须与不旋转时完全相同（不改变原有布局）
-                    if (angle == 0)
-                    {
-                        float flatDiagonal = (float)Math.Sqrt(axis * axis + axis * axis);
-                        if (Math.Abs(nearest - flatDiagonal) > 0.01f) sameAsFlat = false;
-                    }
+                    if (angle == 0 && Math.Abs(nearest - expected) > 0.01f) sameAsFlat = false;
                 }
             }
             Check(allQuadrants && allAngles,
-                "旋转后按方位反推锚点：0°/10°/30°/45°/90°/-45°/135° 下四个方位的注记，离要素最近的角都恰好贴在偏移点上（斜向距离 " + diagonal.ToString("0.0") + " 像素）");
+                "旋转后按方位反推锚点：0°/10°/30°/45°/90°/-45°/135° 下四个方位的注记，离要素最近的角都恰好贴在偏移点上（与符号中心相距 "
+                + expected.ToString("0.0") + " 像素 = 符号半径 " + radius.ToString("0.0") + " + 间隙 " + gap.ToString("0.0") + "）");
             Check(sameAsFlat, "角度为 0 时最近角与不旋转时完全一致（不改变原有布局）");
 
             // 线/面注记同理：旋转后仍以定位点为中心
@@ -934,7 +941,7 @@ internal static class Program
         using (var rotateMap = new MapControl { Size = new Size(420, 320) })
         {
             var rotateHandle = rotateMap.Handle;
-            var rotateLayer = SampleData.MakePlanarLayer("旋转注记", GeometryTypeConstant.Point,
+            var rotateLayer = Fixtures.MakePlanarLayer("旋转注记", GeometryTypeConstant.Point,
                 new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
             rotateLayer.LabelRenderer = new LabelRenderer
             {
@@ -963,7 +970,7 @@ internal static class Program
         {
             var zoomHandle = zoomMap.Handle;
             zoomManager.Bind(zoomMap);
-            var sampleLayers = SampleData.Create().ToList();
+            var sampleLayers = Fixtures.GeoLayers().ToList();
             foreach (Layer layer in sampleLayers) zoomMap.AddLayer(layer);
             zoomMap.FullExtent();
             Application.DoEvents();
@@ -1007,6 +1014,71 @@ internal static class Program
             Check(singleView.Width < 0.05 && singleView.Height < 0.05,
                 "单点图层“缩放至图层”后视野收紧到 0.05° 以内（实测 " + singleView.Width.ToString("0.0000")
                 + "°，此前固定 1 个地图单位会放大到 2°）");
+        }
+
+        // 3.7.6 注记与点符号的距离：必须紧贴，且**不随比例尺变化**（真实数据上最容易被发现的“注记飘远”问题）
+        //       点注记的偏移是按屏幕像素算的（符号半径 + 3 像素），与地图比例尺无关；
+        //       这里用同一图层跨 2000 倍比例尺渲染，逐次量“符号墨迹 与 注记墨迹”的屏幕间隙。
+        using (var gapMap = new MapControl { Size = new Size(400, 300) })
+        {
+            var gapHandle = gapMap.Handle;
+            var gapLayer = Fixtures.MakePlanarLayer("间距点", GeometryTypeConstant.Point,
+                new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 }, "POINT (50 50)");
+            gapLayer.LabelRenderer = new LabelRenderer
+            {
+                LabelFeatures = true, Field = "名称",
+                TextSymbol = new TextSymbol { FontName = "Microsoft YaHei UI", FontSize = 14, FontColor = Color.Red }
+            };
+            gapMap.AddLayer(gapLayer);
+            int firstGapX = int.MinValue, firstGapY = int.MinValue, maxGapX = 0;
+            bool gapStable = true;
+            var gapLog = new System.Text.StringBuilder();
+            foreach (double span in new[] { 100.0, 20.0, 1.0, 0.05 })
+            {
+                gapMap.SetExtent(new Envelope(50 - span / 2, 50 + span / 2, 50 - span / 2, 50 + span / 2));
+                Application.DoEvents();
+                using (Bitmap bmp = Render(gapMap))
+                {
+                    Rectangle marker = ColorBounds(bmp, Color.Blue, 60);
+                    Rectangle text = ColorBounds(bmp, Color.Red, 60);
+                    int gapX = text.Left - marker.Right, gapY = marker.Top - text.Bottom;
+                    gapLog.Append(span + "→" + gapX + "/" + gapY + " ");
+                    if (marker.IsEmpty || text.IsEmpty) { gapStable = false; continue; }
+                    if (firstGapX == int.MinValue) { firstGapX = gapX; firstGapY = gapY; }
+                    else if (Math.Abs(gapX - firstGapX) > 1 || Math.Abs(gapY - firstGapY) > 1) gapStable = false;
+                    maxGapX = Math.Max(maxGapX, gapX);
+                }
+            }
+            Check(gapStable,
+                "点注记与点符号的屏幕间距不随比例尺变化（跨 2000 倍比例尺实测水平/垂直间隙：" + gapLog.ToString().Trim() + "）");
+            Check(maxGapX <= 12,
+                "点注记紧贴点符号（几何上最近角距符号边缘 3 像素；墨迹间隙最大 " + maxGapX + " 像素，精确距离由 3.7.4 断言）");
+
+            // 符号被放大后注记不能被一起推远（此前按“半径 + 间隙”在对角方向摆放，实际距离是这个值的 √2 倍）
+            gapLayer.Symbol = new SimpleMarkerSymbol { Color = Color.Blue, Size = 15 };
+            gapMap.SetExtent(new Envelope(0, 100, 0, 100));
+            Application.DoEvents();
+            ScreenPoint centre = gapMap.Transform.MapToScreen(new Coordinate(50, 50));
+            using (Bitmap bmp = Render(gapMap))
+            {
+                Rectangle marker = ColorBounds(bmp, Color.Blue, 60);
+                Rectangle text = ColorBounds(bmp, Color.Red, 60);
+                float radius = marker.Width / 2f;
+                float dx = text.Left - centre.X, dy = centre.Y - text.Bottom;
+                float inkDistance = (float)Math.Sqrt(dx * dx + dy * dy);
+                float oldDistance = (float)(1.41421356 * (radius + 3));   // 旧实现（对角各偏 半径+间隙）的距离
+                Check(marker.Width > 40 && inkDistance < oldDistance && inkDistance < radius + 3 + 12,
+                    "符号放大到 15 毫米（墨迹 " + marker.Width + " 像素）后注记仍紧贴符号：离符号中心 "
+                    + inkDistance.ToString("0.0") + " 像素，明显小于旧对角摆法的 " + oldDistance.ToString("0.0") + " 像素");
+            }
+            // 极大符号：距离有硬上限，宁可略微压到符号上也不飘远
+            PointF[] huge = LabelPlacer.AroundPoint(new PointF(0, 0), new SizeF(60, 16), 300f, 3f, 0);
+            float nearestHuge = float.MaxValue;
+            foreach (PointF v in LabelPlacer.Quad(huge[0], new SizeF(60, 16), 0))
+                nearestHuge = Math.Min(nearestHuge, (float)Math.Sqrt(v.X * v.X + v.Y * v.Y));
+            Check(Math.Abs(nearestHuge - LabelPlacer.MaxAnchorDistance) < 0.5f,
+                "符号极大时注记与符号中心的距离被限制在 " + LabelPlacer.MaxAnchorDistance
+                + " 像素以内（实测 " + nearestHuge.ToString("0.0") + " 像素）");
         }
 
         // 3.3b) 单段“垂直偏移”的方向：正偏移把本段移到线的左侧（水平线上 = 向上），负偏移移到右侧（向下）
@@ -1075,6 +1147,93 @@ internal static class Program
                 + " 像素一致；起点右移 " + (shiftedStart - plainStart) + " 像素）");
         }
 
+        // 3.3d) 自定义虚线的边框（casing）必须画在**线宽的两端**：
+        //       边框宽度是“线宽两侧各加多少毫米”，因此总宽 = 线宽 + 2×边框宽。
+        //       （此前直接把边框宽当总宽用，边框反而比线还细，肉眼看不出“包住”的效果。）
+        {
+            var casingSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            casingSymbol.DashElements.Add(new LineDashElement
+            {
+                Length = 40, Color = Color.Red, Width = 0.5,          // 芯线：0.5 毫米 ≈ 1.9 像素
+                OutlineColor = Color.Blue, OutlineWidth = 1          // 边框：两侧各 1 毫米 → 总宽 2.5 毫米 ≈ 9.4 像素
+            });
+            using (Bitmap casing = DrawLineSample(casingSymbol))
+            {
+                Rectangle blue = ColorBounds(casing, Color.Blue, 60);
+                Rectangle red = ColorBounds(casing, Color.Red, 60);
+                // 量中间一列：蓝色（边框）在上下两侧、红色（芯线）在中间
+                int column = red.Left + red.Width / 2;
+                int blueRun = 0, redRun = 0;
+                for (int y = 0; y < casing.Height; y++)
+                {
+                    Color c = casing.GetPixel(column, y);
+                    if (Math.Abs(c.B - 255) <= 60 && c.R <= 60 && c.G <= 60) blueRun++;
+                    else if (c.R >= 195 && c.G <= 60 && c.B <= 60) redRun++;
+                }
+                Check(blue.Height >= 8 && blue.Height <= 14 && blue.Width >= red.Width,
+                    "边框画在线宽的两端：边框总高 " + blue.Height + " 像素 ≈ 线宽 0.5mm + 两侧各 1mm（2.5mm ≈ 9.4 像素）");
+                Check(blueRun >= 4 && redRun >= 1 && redRun <= 4 && blueRun > redRun,
+                    "同一列上边框（蓝）在两侧、芯线（红）在中间（蓝 " + blueRun + " 像素、红 " + redRun + " 像素）");
+            }
+        }
+
+
+        // 3.9) 图层面板的符号必须与地图一致、且**稳定**：
+        //      shp 导入的图层没有设置过符号，此前图层面板每次重绘都会新建一个随机颜色的默认符号，
+        //      于是“面板里的符号与地图不一样”，而且上下移动图层（触发重绘）时符号还会变色。
+        {
+            var legendMap = new MapControl { Size = new Size(320, 240) };
+            using (var legendManager = new LayerManagerControl { Size = new Size(240, 400) })
+            {
+                var legendHandle = legendMap.Handle;
+                legendManager.Bind(legendMap);
+                var plain = Fixtures.MakePlanarLayer("无符号点层", GeometryTypeConstant.Point, null, "POINT (50 50)");
+                legendMap.AddLayer(plain);
+                var other = Fixtures.MakePlanarLayer("线层", GeometryTypeConstant.LineString,
+                    new SimpleLineSymbol { Color = Color.Green, Size = 0.8 }, "LINESTRING (0 0, 90 90)");
+                legendMap.AddLayer(other);
+                legendMap.SetExtent(new Envelope(0, 100, 0, 100));
+                Application.DoEvents();
+
+                Color expected = Color.FromArgb(183, 63, 63);      // 地图用的默认点符号颜色
+                Check(plain.Symbol is SimpleMarkerSymbol marker && marker.Color.ToArgb() == expected.ToArgb(),
+                    "没有设置过符号的图层被自动绑定默认符号（与地图画的是同一个符号对象）");
+                Check(BasicGeometryDrawer.EnsureDefaultSymbol(plain) == false,
+                    "已经绑定过符号的图层不会再被重复绑定（符号不会每次刷新都变）");
+                Check(((SimpleMarkerSymbol)SymbolUI.DefaultFor(GeometryTypeConstant.Point)).Color.ToArgb() ==
+                      ((SimpleMarkerSymbol)SymbolUI.DefaultFor(GeometryTypeConstant.Point)).Color.ToArgb(),
+                    "默认符号每次生成结果相同（不再使用随机颜色）");
+
+                var row = legendManager.LayerRows.First(r => ReferenceEquals(r.Layer, plain));
+                legendManager.PerformLayout();
+                row.PerformLayout();
+                Application.DoEvents();
+                int legendInk = -1, legendInkAfterMove = -2;
+                using (var rowImage = new Bitmap(row.Width, row.Height))
+                {
+                    row.DrawToBitmap(rowImage, new Rectangle(0, 0, row.Width, row.Height));
+                    legendInk = CountColor(rowImage, expected, 20);
+                }
+                // 上下移动图层：行会重排、重绘，符号颜色必须保持不变
+                legendMap.MoveLayer(plain, 0);
+                Application.DoEvents();
+                var movedRow = legendManager.LayerRows.First(r => ReferenceEquals(r.Layer, plain));
+                legendManager.PerformLayout();
+                movedRow.PerformLayout();
+                Application.DoEvents();
+                using (var rowImage = new Bitmap(movedRow.Width, movedRow.Height))
+                {
+                    movedRow.DrawToBitmap(rowImage, new Rectangle(0, 0, movedRow.Width, movedRow.Height));
+                    legendInkAfterMove = CountColor(rowImage, expected, 20);
+                }
+                Check(legendInk > 20 && legendInkAfterMove > 20,
+                    "图层面板里画的就是地图用的默认符号（颜色一致），上下移动图层后重绘仍然是这个符号（移动前 "
+                    + legendInk + " 像素、移动后 " + legendInkAfterMove + " 像素）");
+                using (Bitmap mapImage = Render(legendMap))
+                    Check(CountColor(mapImage, expected, 20) > 20, "地图上画的确实是同一个默认符号颜色");
+            }
+        }
+
 
         // 3.4) 面符号多边界：外环向外偏移、洞向内偏移（正偏移量 = 面整体扩张）
         using (var map = new MapControl { Size = new Size(600, 600) })
@@ -1084,7 +1243,7 @@ internal static class Program
             foreach (int offsetValue in new[] { 3, -3 })
             {
                 foreach (Layer old in map.Layers.ToArray()) map.RemoveLayer(old);
-                var layer = SampleData.MakePlanarLayer("带洞面", GeometryTypeConstant.Polygon, null,
+                var layer = Fixtures.MakePlanarLayer("带洞面", GeometryTypeConstant.Polygon, null,
                     "POLYGON ((10 10, 90 10, 90 90, 10 90, 10 10), (40 40, 60 40, 60 60, 40 60, 40 40))");
                 var symbol = new SimpleFillSymbol { Color = Color.Transparent };
                 symbol.Outlines.Clear();
@@ -1152,7 +1311,7 @@ internal static class Program
             broken.Field = "高程";   // 样例图层的字段为 名称/类型/数值，"高程"不存在
             broken.AddBreakValue(10, new SimpleFillSymbol { Color = Color.Red });
             broken.AddBreakValue(20, new SimpleFillSymbol { Color = Color.Blue });
-            var layer = SampleData.MakePlanarLayer("分区", GeometryTypeConstant.Polygon,
+            var layer = Fixtures.MakePlanarLayer("分区", GeometryTypeConstant.Polygon,
                 new SimpleFillSymbol { Color = Color.Green }, "POLYGON ((10 10, 90 10, 90 90, 10 90, 10 10))");
             layer.Renderer = RendererFile.Parse(
                 RendererFile.ToLines(broken, GeometryTypeConstant.Polygon), RendererFile.PolygonExtension, layer.FeatureClass);
@@ -1401,7 +1560,7 @@ internal static class Program
         {
             var handle = map.Handle;
             manager.Bind(map);
-            var layer = SampleData.MakePlanarLayer("北京54数据", GeometryTypeConstant.Point, null, "POINT (116.3 39.9)");
+            var layer = Fixtures.MakePlanarLayer("北京54数据", GeometryTypeConstant.Point, null, "POINT (116.3 39.9)");
             Check(layer.IsWgs84, "新建图层默认标记为 WGS84");
             layer.GeographicDatum = GeographicDatum.Find("GCS_Beijing_1954");
             map.AddLayer(layer);
@@ -1424,7 +1583,7 @@ internal static class Program
 
         // 5b) “投影到 WGS84”对话框：选中国测局坐标系后必须仍走加密偏移算法
         //     回归：ComposeDatum 曾丢掉 IsGcj02 标记，使 GCJ-02 被当成“零参数 WGS84”，转换后坐标毫无变化
-        var gcjLayer = SampleData.MakePlanarLayer("GCJ02数据", GeometryTypeConstant.Point, null, "POINT (116.4 39.9)");
+        var gcjLayer = Fixtures.MakePlanarLayer("GCJ02数据", GeometryTypeConstant.Point, null, "POINT (116.4 39.9)");
         using (var dialog = new ProjectToWgs84Form(gcjLayer, false))
         {
             dialog.ShowInTaskbar = false;
@@ -1537,6 +1696,59 @@ internal static class Program
                 image.Save(Path.Combine(outputDir, "line-symbol-editor.png"), ImageFormat.Png);
             }
             lineEditor.Hide();
+        }
+
+        // 5e) 偏移线也要像“自定义虚线”一样先勾选才显示模块：
+        //     未勾选时偏移线面板不显示、偏移线集合为空（画出来就是单线）；
+        //     勾选后自动补一条偏移线并显示面板；再取消勾选则清空（可再恢复）。
+        using (var offsetsEditor = LineSymbolEditor.Create(new SimpleLineSymbol { Color = Color.Black, Size = 1 }))
+        {
+            offsetsEditor.ShowInTaskbar = false;
+            offsetsEditor.Opacity = 0;
+            offsetsEditor.Show();
+            Application.DoEvents();
+            CheckBox useOffsets = AllControls(offsetsEditor).OfType<CheckBox>()
+                .FirstOrDefault(c => c.Text.Contains("偏移线"));
+            Check(useOffsets != null, "线符号设置窗口里有“使用多条偏移线”勾选框");
+            Panel offsetsPanel = AllControls(offsetsEditor).OfType<Panel>()
+                .FirstOrDefault(p => p.Height > 100 && p.Controls.OfType<ListBox>().Any());
+            Check(offsetsPanel != null && !offsetsPanel.Visible && !useOffsets.Checked,
+                "未勾选时不显示偏移线模块（只有一条线）");
+            useOffsets.Checked = true;
+            Application.DoEvents();
+            Check(offsetsPanel.Visible, "勾选后显示偏移线模块");
+            var editorSymbol = offsetsEditor.EditedSymbol;
+            Check(editorSymbol.Offsets.Count == 1, "勾选后自动补一条默认偏移线（偏移量 0）");
+            useOffsets.Checked = false;
+            Application.DoEvents();
+            Check(!offsetsPanel.Visible && editorSymbol.Offsets.Count == 0,
+                "取消勾选后清空偏移线并隐藏模块（切回单线）");
+            useOffsets.Checked = true;
+            Application.DoEvents();
+            Check(editorSymbol.Offsets.Count == 1, "重新勾选可恢复偏移线");
+            offsetsEditor.Hide();
+        }
+
+        // 5f) 高斯-克吕格：3 度带 / 6 度带切换后必须重算带号（带号含义不同，不能沿用原数字）
+        using (var zoneForm = new ZonePickerForm(false))
+        {
+            zoneForm.ShowInTaskbar = false;
+            zoneForm.Opacity = 0;
+            zoneForm.Show();
+            Application.DoEvents();
+            zoneForm.Is3Degree = true;
+            zoneForm.Zone = 39;                       // 3 度带第 39 带：中央经线 117°E
+            double central3 = ZoneGlobe.ZoneCentral(zoneForm.Kind, zoneForm.Zone);
+            zoneForm.Is3Degree = false;               // 切到 6 度带
+            Application.DoEvents();
+            double central6 = ZoneGlobe.ZoneCentral(zoneForm.Kind, zoneForm.Zone);
+            Check(zoneForm.Zone == 20 && Math.Abs(central6 - central3) < 1e-9,
+                "切到 6 度带后带号重算为 20（中央经线仍是 117°E，实测第 " + zoneForm.Zone + " 带、中央经线 " + central6 + "°）");
+            zoneForm.Is3Degree = true;                // 切回 3 度带
+            Application.DoEvents();
+            Check(zoneForm.Zone == 39 && Math.Abs(ZoneGlobe.ZoneCentral(zoneForm.Kind, zoneForm.Zone) - central3) < 1e-9,
+                "切回 3 度带后带号重算为 39（中央经线保持不变）");
+            zoneForm.Hide();
         }
 
         // 6) 投影只从“图层固有的 WGS84 经纬度快照”出发：反复切换（含与数据不匹配的南半球带）不改变原始经纬度

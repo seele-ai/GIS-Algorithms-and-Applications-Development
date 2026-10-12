@@ -66,8 +66,9 @@ internal static class ShapefileChecks
                 image.Save(Path.Combine(output, "shapefile-import.png"));
             }
             int count = form.Map.Layers.Count;
-            form.LoadSamples(); form.ToggleSamples(); form.LoadSamples();
-            check(form.Map.Layers.Count == count + 6, "案例操作保留全部真实导入数据");
+            // 演示/案例功能已删除：原先用“加载案例”验证导入数据不被清掉，现在改为验证导入的图层都还在、且都绑定了符号。
+            check(count > 0 && form.Map.Layers.All(l => l.Symbol != null || l.Renderer != null),
+                "导入的真实数据全部保留且每层都有符号或渲染器");
         }
     }
 }

@@ -19,6 +19,13 @@ namespace GIS.Display
         /// <summary>注记之间的最小间隙（像素）：小于它就算冲突，避免两条注记贴在一起。</summary>
         public const float Padding = 2f;
 
+        /// <summary>
+        /// 注记离点符号中心的最大距离（像素）。点符号的注记按“符号半径 + 间隙”摆放，
+        /// 正常情况下只有十来个像素；只有符号被设得极大（半径超过 37 像素，约 20 毫米符号）时才会触到这个上限，
+        /// 此时宁可让注记略微压到符号上，也不让它远离点位——注记离点太远就起不到标注作用了。
+        /// </summary>
+        public const float MaxAnchorDistance = 40f;
+
         /// <summary>注记的 4 个角点（按锚点、宽高与角度旋转后的平行四边形，顺序为左上→右上→右下→左下）。</summary>
         public static PointF[] Quad(PointF location, SizeF size, double angle)
         {
@@ -118,16 +125,20 @@ namespace GIS.Display
         /// 点符号的四个候选锚点（注记左上角）：右上 → 右下 → 左上 → 左下。
         ///
         /// 关键点：取注记<tspan>实际平行四边形的 4 个角</tspan>，把“朝向该方位、离符号最近的那个角”
-        /// 放到与符号相距「符号半径 + 间隙」的位置上：
+        /// 放到与符号中心相距「符号半径 + 间隙」的位置上（四个方位都是 45° 方向，因此两轴分量各取距离/√2）：
         ///  · 右上 → 取 x−y 最小的角（最靠右上）　· 右下 → 取 x+y 最小的角（最靠左上）
         ///  · 左上 → 取 x+y 最大的角（最靠右下）　· 左下 → 取 x−y 最大的角（最靠右上）
-        /// 因此无论旋转多少度，注记离要素最近的那个角总是紧贴要素外侧，
+        /// 因此无论旋转多少度，注记离要素最近的那个角总是紧贴要素外侧（间隙恒为 gap），
         /// 既不会像“按外接矩形摆放”那样忽远忽近，也不会压住符号；角度为 0 时与不旋转的摆放完全一致。
+        /// 距离另有上限 <see cref="MaxAnchorDistance"/>：符号极大时不把注记推到很远。
         /// </summary>
         public static PointF[] AroundPoint(PointF point, SizeF size, float symbolRadius, float gap, double angle)
         {
             PointF[] quad = Quad(new PointF(0, 0), size, angle);
-            float dx = symbolRadius + gap, dy = symbolRadius + gap;
+            // 到符号中心的距离 = 符号半径 + 间隙（不超过上限）；两轴分量 = 距离 / √2，
+            // 这样最近角到中心点的实际距离就是“半径 + 间隙”，而不是此前的 √2 倍。
+            float distance = Math.Min(symbolRadius + gap, MaxAnchorDistance);
+            float dx = distance / 1.41421356f, dy = dx;
             PointF rightTop = ExtremeCorner(quad, 1f, -1f, false);
             PointF rightBottom = ExtremeCorner(quad, 1f, 1f, false);
             PointF leftTop = ExtremeCorner(quad, 1f, 1f, true);

@@ -127,7 +127,9 @@ namespace GIS.Display
         }
 
         // 注记的候选锚点（左上角）：点要素试四个角，线/面在定位点居中并允许上下微调。
-        // 传入 angle：候选位置按“旋转后的外接矩形”反推，保证设置旋转角后注记仍然紧贴要素、不会远离。
+        // 传入 angle：候选位置按“旋转后的平行四边形”反推，保证设置旋转角后注记仍然紧贴要素、不会远离。
+        // 点要素的注记离符号中心的距离 = 符号半径 + 3 像素（与比例尺、符号大小都按屏幕像素算，
+        // 因此任何比例尺下注记都紧贴点符号；符号特别大时由 LabelPlacer.MaxAnchorDistance 兜住上限）。
         private static PointF[] LabelCandidates(Geometry geometry, Symbol symbol, MapTransform transform,
             SizeF size, double angle)
         {
@@ -175,15 +177,37 @@ namespace GIS.Display
 
         public static Symbol DefaultSymbol(Geometry geometry)
         {
-            if (geometry is Point || geometry is MultiPoint)
-                return new SimpleMarkerSymbol { Color = Color.FromArgb(183, 63, 63), Size = 3 };
-            if (geometry is LineString || geometry is MultiLineString)
+            return DefaultSymbol(geometry == null ? GeometryTypeConstant.Point : geometry.GeometryType);
+        }
+
+        /// <summary>
+        /// 按几何类型给出**确定**的默认符号（颜色、尺寸固定，不含随机量）。
+        /// 图层面板与地图都用它：导入 shp 等“没有设置过符号”的图层时，
+        /// 两侧显示同一个符号，且不会因为重绘而变色（此前图层面板每次都新建随机颜色的符号）。
+        /// </summary>
+        public static Symbol DefaultSymbol(GeometryTypeConstant type)
+        {
+            if (type == GeometryTypeConstant.Point || type == GeometryTypeConstant.MultiPoint)
+                return new SimpleMarkerSymbol { Color = Color.FromArgb(183, 63, 63), Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle };
+            if (type == GeometryTypeConstant.LineString || type == GeometryTypeConstant.MultiLineString)
                 return new SimpleLineSymbol { Color = Color.FromArgb(65, 110, 166), Size = 0.6 };
             return new SimpleFillSymbol
             {
                 Color = Color.FromArgb(216, 231, 207),
                 Outline = new SimpleLineSymbol { Color = Color.FromArgb(89, 123, 84), Size = 0.3 }
             };
+        }
+
+        /// <summary>
+        /// 图层“还没有设置过符号”时给它绑定一个默认符号（只绑一次，之后图层面板与地图共用同一个对象）。
+        /// 返回是否新绑定了符号。
+        /// </summary>
+        public static bool EnsureDefaultSymbol(Layer layer)
+        {
+            if (layer == null || layer.FeatureClass == null) return false;
+            if (layer.Renderer != null || layer.Symbol != null) return false;
+            layer.Symbol = DefaultSymbol(layer.FeatureClass.GeometryType);
+            return true;
         }
 
         public static Symbol HighlightSymbol(Geometry geometry)
@@ -548,8 +572,10 @@ namespace GIS.Display
             for (int i = 0; i < n; i++)
             {
                 LineDashElement el = symbol.DashElements[i];
+                // 边框（casing）画在**本段线宽的两端**：边框宽度是“线宽两侧各加多少毫米”，
+                // 因此边框笔宽 = 线宽 + 2×边框宽（此前直接拿边框宽当总宽，导致边框没有包住线宽两侧）。
                 casingPens[i] = (el.OutlineWidth > 0 && el.OutlineColor.A > 0)
-                    ? MakeLinePen(el.OutlineColor, Math.Max(el.OutlineWidth, 0.01), dpm) : null;
+                    ? MakeLinePen(el.OutlineColor, Math.Max(el.Width, 0.01) + 2 * el.OutlineWidth, dpm) : null;
                 corePens[i] = MakeLinePen(el.Color, Math.Max(el.Width, 0.01), dpm);
                 tickPens[i] = MakeLinePen(el.TickColor.A == 0 ? el.Color : el.TickColor, Math.Max(el.Width, 0.01), dpm);
             }

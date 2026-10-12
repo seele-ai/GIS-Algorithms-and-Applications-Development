@@ -24,7 +24,6 @@ namespace GIS.Display.Demo
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
 
         // 当前地图显示坐标系：null 表示经纬度（地理坐标），否则为选定投影
-        private readonly List<Layer> sampleLayers = new List<Layer>();
         private ProjectionCS currentProjection;
         private int currentProjectionIndex = -1;
 
@@ -59,8 +58,6 @@ namespace GIS.Display.Demo
             AddAction("全图", () => ZoomToAllLayers());
             AddAction("清空选择", () => Map.ClearSelection());
             AddAction("导入 SHP", ImportShapefiles);
-            AddAction("显示/隐藏案例", ToggleSamples);
-            AddAction("重置案例", LoadSamples);
             toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
@@ -110,35 +107,6 @@ namespace GIS.Display.Demo
             Map.LayersChanged += (s, e) => UpdateStatus();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
             Shown += (s, e) => UpdateStatus();
-        }
-
-        /// <summary>
-        /// 加载样例图层。样例数据本身是 WGS84 经纬度，载入时先保存为图层的经纬度快照
-        /// （固有属性），再按当前投影生成显示几何。
-        /// </summary>
-        public void LoadSamples()
-        {
-            foreach (Layer layer in sampleLayers) Map.RemoveLayer(layer);
-            sampleLayers.Clear();
-            foreach (Layer layer in SampleData.Create())
-            {
-                sampleLayers.Add(layer);
-                layer.CaptureGeographic(null);        // 原始数据即经纬度
-                layer.ApplyProjection(currentProjection);
-                Map.AddLayer(layer);
-            }
-            Map.FullExtent();
-            UpdateSelection();
-        }
-
-        public void ToggleSamples()
-        {
-            if (!sampleLayers.Any(l => Map.Layers.Contains(l))) { LoadSamples(); return; }
-            bool show = !sampleLayers.Any(l => Map.Layers.Contains(l) && l.Visible);
-            foreach (Layer layer in sampleLayers.Where(l => Map.Layers.Contains(l)))
-                Map.SetLayerVisible(layer, show);
-            ZoomToAllLayers();
-            UpdateSelection();
         }
 
         public Layer ImportShapefile(string path, bool assumeWgs84 = false)
@@ -341,6 +309,9 @@ namespace GIS.Display.Demo
             selected.Text = $"选中 {Map.Layers.Sum(l => Map.GetSelection(l).Count)} 个要素";
         }
 
+        /// <summary>把指定地图坐标显示到右下角状态栏（自动检查用它验证显示格式，与鼠标移动走同一段代码）。</summary>
+        public void ShowPosition(Coordinate mapCoordinate) => UpdatePosition(mapCoordinate);
+
         // 右下角始终显示经纬度；若已投影，附带显示当前投影坐标（投影名称与上方选框保持一致）
         private void UpdatePosition(Coordinate mapCoordinate)
         {
@@ -358,7 +329,11 @@ namespace GIS.Display.Demo
                        "   纬度 " + Math.Abs(lngLat.Y).ToString("F6") + (lngLat.Y >= 0 ? "°N" : "°S");
             }
             if (currentProjection != null)
-                text += $"    |    {ProjectionName(currentProjectionIndex)}  X {mapCoordinate.X:F1}  Y {mapCoordinate.Y:F1}";
+            {
+                // 投影坐标按国内测量习惯显示：X = 纵坐标（北向 / 纬度方向），Y = 横坐标（东向 / 经度方向）。
+                // 内部数据结构 Coordinate.X 是东向（与经度一致），因此这里把两者对调显示。
+                text += $"    |    {ProjectionName(currentProjectionIndex)}  X（纵·北）{mapCoordinate.Y:F1}  Y（横·东）{mapCoordinate.X:F1}";
+            }
             position.Text = text;
         }
 
