@@ -1079,6 +1079,30 @@ internal static class Program
             Check(Math.Abs(nearestHuge - LabelPlacer.MaxAnchorDistance) < 0.5f,
                 "符号极大时注记与符号中心的距离被限制在 " + LabelPlacer.MaxAnchorDistance
                 + " 像素以内（实测 " + nearestHuge.ToString("0.0") + " 像素）");
+
+            // 3.7.7 小比例尺：偏移还要受**实地距离**上限约束
+            //       （1:9000 万、经纬度数据时 1 像素约 24 公里，固定的 10 像素偏移折合 240 公里，
+            //        中国地图上昆明的注记会落到别的省里去）
+            var smallSymbol = new SimpleMarkerSymbol { Color = Color.Blue, Size = 4 };
+            gapMap.Transform.Mpu = 111320;                          // 经纬度数据：1 度 ≈ 111.32 公里
+            gapMap.SetExtent(new Envelope(70, 140, 15, 55));        // 约 1:9000 万（中国全图）
+            Application.DoEvents();
+            double metresPerPixel = gapMap.Transform.MapUnitsPerPixel() * gapMap.Transform.Mpu;
+            float anchorFar = BasicGeometryDrawer.PointLabelAnchorDistance(gapMap.Transform, smallSymbol);
+            double groundFar = anchorFar * metresPerPixel;
+            Check(anchorFar <= 0.5 && groundFar <= 2500,
+                "1:9000 万时注记偏移被压到 " + anchorFar.ToString("0.00") + " 像素（实地约 "
+                + (groundFar / 1000).ToString("0.0") + " 公里），注记贴在点上而不是落到别的省");
+
+            gapMap.SetExtent(new Envelope(116.35, 116.36, 39.9, 39.91));   // 约 1:1 万，城市级
+            Application.DoEvents();
+            double metresPerPixelNear = gapMap.Transform.MapUnitsPerPixel() * gapMap.Transform.Mpu;
+            float anchorNear = BasicGeometryDrawer.PointLabelAnchorDistance(gapMap.Transform, smallSymbol);
+            double expectedAnchor = 4 / 1000.0 * gapMap.Transform.Dpm / 2 + 3;   // 半径（4 毫米）+ 3 像素
+            Check(Math.Abs(anchorNear - expectedAnchor) < 0.5,
+                "大比例尺（1:1 万，1 像素约 " + metresPerPixelNear.ToString("0.0") + " 米）时注记仍是正常的 "
+                + anchorNear.ToString("0.0") + " 像素偏移（实地约 " + (anchorNear * metresPerPixelNear).ToString("0")
+                + " 米，不受上限影响）");
         }
 
         // 3.3b) 单段“垂直偏移”的方向：正偏移把本段移到线的左侧（水平线上 = 向上），负偏移移到右侧（向下）
@@ -1147,7 +1171,49 @@ internal static class Program
                 + " 像素一致；起点右移 " + (shiftedStart - plainStart) + " 像素）");
         }
 
-        // 3.3d) 自定义虚线的边框（casing）必须画在**线宽的两端**：
+        // 3.3e) 每段必须是**矩形**（端头平整），而不是画笔画的“半圆 + 矩形 + 半圆”：
+        //       用画笔描边时圆头会沿线方向多出半个线宽，边框更宽、溢出更多（0.5 线 + 1 边框时多出 2.5 毫米）。
+        {
+            var rectSymbol = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            rectSymbol.DashElements.Add(new LineDashElement { Length = 10, Color = Color.Black, Width = 2 });
+            rectSymbol.DashElements.Add(new LineDashElement { Length = 10, Color = Color.Transparent, Width = 0.01 });   // 间隙段
+            using (Bitmap rect = DrawLineSample(rectSymbol))
+            {
+                int start, run;
+                FirstInkRun(rect, 40, out start, out run);
+                int middleColumn = start + run / 2, endColumn = start + run - 1;
+                int middleInk = 0, endInk = 0;
+                for (int y = 0; y < rect.Height; y++)
+                {
+                    if (InkAt(rect, middleColumn, y)) middleInk++;
+                    if (InkAt(rect, endColumn, y)) endInk++;
+                }
+                // 10 毫米 ≈ 37.8 像素；带圆头会变成 37.8 + 2 毫米 ≈ 45 像素
+                Check(run <= 40 && run >= 34,
+                    "虚线段是矩形：10 毫米的段画出来 " + run + " 像素（≈37.8），没有圆头多出的半个线宽");
+                Check(endInk >= middleInk - 1 && middleInk >= 6,
+                    "段的两端平整：端头列墨迹 " + endInk + " 像素、中间列 " + middleInk + " 像素（半圆端头会明显更少）");
+            }
+
+            // 边框同样不能沿线溢出：边框比芯线宽，但长度必须与段长一致
+            var rectCasing = new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
+            rectCasing.DashElements.Add(new LineDashElement
+            {
+                Length = 10, Color = Color.Red, Width = 0.5, OutlineColor = Color.Blue, OutlineWidth = 1
+            });
+            rectCasing.DashElements.Add(new LineDashElement { Length = 10, Color = Color.Transparent, Width = 0.01 });   // 间隙段
+            using (Bitmap rect = DrawLineSample(rectCasing))
+            {
+                // 芯线在中间、边框在上下两侧：在中心线上方 3 像素处量第一段蓝色（边框）的长度
+                int blueStart, blueRun;
+                FirstColorRun(rect, 37, Color.Blue, 60, out blueStart, out blueRun);
+                Check(blueRun >= 34 && blueRun <= 40,
+                    "边框也限制在本段之内：10 毫米的段，边框（含两侧各 1 毫米）沿线方向的长度仍是 "
+                    + blueRun + " 像素（≈37.8），不沿线溢出");
+            }
+        }
+
+
         //       边框宽度是“线宽两侧各加多少毫米”，因此总宽 = 线宽 + 2×边框宽。
         //       （此前直接把边框宽当总宽用，边框反而比线还细，肉眼看不出“包住”的效果。）
         {

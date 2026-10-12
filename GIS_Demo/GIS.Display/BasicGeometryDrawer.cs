@@ -128,26 +128,51 @@ namespace GIS.Display
 
         // 注记的候选锚点（左上角）：点要素试四个角，线/面在定位点居中并允许上下微调。
         // 传入 angle：候选位置按“旋转后的平行四边形”反推，保证设置旋转角后注记仍然紧贴要素、不会远离。
-        // 点要素的注记离符号中心的距离 = 符号半径 + 3 像素（与比例尺、符号大小都按屏幕像素算，
-        // 因此任何比例尺下注记都紧贴点符号；符号特别大时由 LabelPlacer.MaxAnchorDistance 兜住上限）。
+        // 点要素的注记离符号中心的距离 = 符号半径 + 3 像素，但还有两个上限：
+        //  · LabelPlacer.MaxAnchorDistance（屏幕像素，符号特别大时兜住）；
+        //  · MaxLabelGroundOffsetMeters（实地距离，小比例尺时把偏移压到最小，见下面的注释）。
         private static PointF[] LabelCandidates(Geometry geometry, Symbol symbol, MapTransform transform,
             SizeF size, double angle)
         {
-            double dpm = transform.Dpm;
-            var marker = symbol as SimpleMarkerSymbol;
-            float radius = marker == null ? 0f : (float)(ToPixels(marker.Size, dpm) / 2);
-            const float gap = 3f;
+            float anchor = PointLabelAnchorDistance(transform, symbol);
             if (geometry is Point p)
-                return LabelPlacer.AroundPoint(Screen(p.Coordinate, transform), size, radius, gap, angle);
+                return LabelPlacer.AroundPoint(Screen(p.Coordinate, transform), size, anchor, 0f, angle);
             if (geometry is MultiPoint mp)
             {
                 if (mp.Points.Count == 0) return null;
-                return LabelPlacer.AroundPoint(Screen(mp.Points[0], transform), size, radius, gap, angle);
+                return LabelPlacer.AroundPoint(Screen(mp.Points[0], transform), size, anchor, 0f, angle);
             }
             PointF center = GetLabelAnchor(geometry, transform);
             if (float.IsNaN(center.X)) return null;
             float step = LabelPlacer.RotatedSize(size, angle).Height + 4f;
             return LabelPlacer.AroundCenter(center, size, step, angle);
+        }
+
+        /// <summary>
+        /// 注记与点的最大**实地**距离（米）。比例尺很小时 1 像素代表的实地距离非常大
+        /// （1:9000 万、经纬度数据时 1 像素约 24 公里），此时“符号半径 + 3 像素”的固定屏幕偏移
+        /// 折合实地就是几十到两百多公里——中国地图上昆明的注记会落到别的省去。
+        /// 因此给偏移再加一个实地距离上限：比例尺越小，偏移越接近 0，注记就贴在点上。
+        /// 比例尺较大（例如 1:5 万，1 像素约 13 米）时上限相当于 150 像素，不影响正常摆放。
+        /// </summary>
+        private const double MaxLabelGroundOffsetMeters = 2000;
+
+        /// <summary>点注记离符号中心的基础偏移（像素）：符号半径 + 3 像素。</summary>
+        private const float PointLabelGap = 3f;
+
+        /// <summary>
+        /// 点注记与符号中心的实际距离（像素）=（符号半径 + 3 像素）再按实地距离上限压缩。
+        /// 自动检查用它验证“小比例尺下偏移被压小、正常比例尺下不受影响”。
+        /// </summary>
+        public static float PointLabelAnchorDistance(MapTransform transform, Symbol symbol)
+        {
+            var marker = symbol as SimpleMarkerSymbol;
+            float radius = marker == null ? 0f : (float)(ToPixels(marker.Size, transform.Dpm) / 2);
+            double metresPerPixel = transform.MapUnitsPerPixel() * transform.Mpu;   // Mpu：1 个地图单位代表多少米
+            if (double.IsNaN(metresPerPixel) || metresPerPixel <= 0) return radius + PointLabelGap;
+            double maximumPixels = MaxLabelGroundOffsetMeters / metresPerPixel;
+            // 保留 0.1 像素的最小间隙，避免正好压在符号中心（此时注记仍紧贴点位）
+            return (float)Math.Max(0.1, Math.Min(radius + PointLabelGap, maximumPixels));
         }
 
         /// <summary>线取折线中点、面取外包矩形中心的屏幕坐标（不含点要素的让开偏移）。</summary>
@@ -557,7 +582,9 @@ namespace GIS.Display
         }
 
         // 自定义虚线：沿折线按 DashElements 循环绘制，支持边框(casing)与端点垂直短划线。
-        // 预创建画笔并复用，避免每条线段反复新建画笔导致的缓慢“从左到右”逐段绘制。
+        // 每段都用**填充带状多边形**画（而不是 GDI+ 画笔）：画笔的两端是圆头，会把每段画成
+        // “半圆 + 矩形 + 半圆”，并且沿线的方向超出段长半个线宽（边框更宽、溢出更多）；
+        // 填充方式得到的是端头平整的矩形/带状，正好限制在本段之内。
         private static void DrawCustomDash(Graphics g, PointF[] pts, SimpleLineSymbol symbol, double dpm)
         {
             int n = symbol.DashElements.Count;
@@ -566,17 +593,21 @@ namespace GIS.Display
             double total = cum[cum.Length - 1];
             if (total <= 0) return;
 
-            var corePens = new Pen[n];
-            var casingPens = new Pen[n];
+            var coreWidths = new float[n];
+            var casingWidths = new float[n];
+            var coreColors = new Color[n];
+            var casingColors = new Color[n];
             var tickPens = new Pen[n];
             for (int i = 0; i < n; i++)
             {
                 LineDashElement el = symbol.DashElements[i];
                 // 边框（casing）画在**本段线宽的两端**：边框宽度是“线宽两侧各加多少毫米”，
-                // 因此边框笔宽 = 线宽 + 2×边框宽（此前直接拿边框宽当总宽，导致边框没有包住线宽两侧）。
-                casingPens[i] = (el.OutlineWidth > 0 && el.OutlineColor.A > 0)
-                    ? MakeLinePen(el.OutlineColor, Math.Max(el.Width, 0.01) + 2 * el.OutlineWidth, dpm) : null;
-                corePens[i] = MakeLinePen(el.Color, Math.Max(el.Width, 0.01), dpm);
+                // 因此边框总宽 = 线宽 + 2×边框宽（此前直接拿边框宽当总宽，导致边框没有包住线宽两侧）。
+                bool hasCasing = el.OutlineWidth > 0 && el.OutlineColor.A > 0;
+                casingWidths[i] = hasCasing ? (float)Math.Max(0.5, ToPixels(Math.Max(el.Width, 0.01) + 2 * el.OutlineWidth, dpm)) : 0f;
+                casingColors[i] = el.OutlineColor;
+                coreWidths[i] = (float)Math.Max(0.5, ToPixels(Math.Max(el.Width, 0.01), dpm));
+                coreColors[i] = el.Color;
                 tickPens[i] = MakeLinePen(el.TickColor.A == 0 ? el.Color : el.TickColor, Math.Max(el.Width, 0.01), dpm);
             }
             try
@@ -591,12 +622,12 @@ namespace GIS.Display
                     double len = ToPixels(element.Length, dpm);
                     if (len <= 0.01) len = 0.01;
                     double to = Math.Min(cursor + len, total);
-                    // 该段的最终几何：先按需延长，再按需画成弧线，最后按需整体偏移
+                    // 该段的最终几何：水平偏移 → 延长 → 弧线 → 垂直偏移
                     PointF[] sub = ElementGeometry(pts, cum, cursor, to, element, dpm);
                     if (sub != null && sub.Length >= 2)
                     {
-                        if (casingPens[i] != null) g.DrawLines(casingPens[i], sub);
-                        g.DrawLines(corePens[i], sub);
+                        if (casingWidths[i] > 0) FillRibbon(g, sub, casingWidths[i], casingColors[i]);
+                        FillRibbon(g, sub, coreWidths[i], coreColors[i]);
                         if (element.TickLength > 0)
                         {
                             float tickPx = (float)Math.Max(0.5, ToPixels(element.TickLength, dpm));
@@ -610,13 +641,45 @@ namespace GIS.Display
             }
             finally
             {
-                for (int i = 0; i < n; i++)
-                {
-                    if (casingPens[i] != null) casingPens[i].Dispose();
-                    corePens[i].Dispose();
-                    tickPens[i].Dispose();
-                }
+                for (int i = 0; i < n; i++) tickPens[i].Dispose();
             }
+        }
+
+        /// <summary>
+        /// 沿折线画一条**两端平整**的带状（线段就是矩形）：把每个顶点按法线向两侧各让开 width/2，
+        /// 一侧正序、另一侧逆序组成多边形后填充。折点处取两段法线的平均，拐弯不会撕开。
+        /// </summary>
+        private static void FillRibbon(Graphics g, PointF[] pts, float width, Color color)
+        {
+            if (pts == null || pts.Length < 2 || width <= 0.01f || color.A == 0) return;
+            int n = pts.Length;
+            float half = width / 2f;
+            var polygon = new PointF[n * 2];
+            for (int i = 0; i < n; i++)
+            {
+                PointF normal = RibbonNormal(pts, i);
+                polygon[i] = new PointF(pts[i].X + normal.X * half, pts[i].Y + normal.Y * half);
+                polygon[n * 2 - 1 - i] = new PointF(pts[i].X - normal.X * half, pts[i].Y - normal.Y * half);
+            }
+            using (var brush = new SolidBrush(color)) g.FillPolygon(brush, polygon);
+        }
+
+        // 折线上第 i 个顶点处的单位法线：端点用相邻段的法线，中间点取两侧法线的平均
+        private static PointF RibbonNormal(PointF[] pts, int i)        {
+            PointF previous = i > 0 ? UnitNormal(pts[i - 1], pts[i]) : PointF.Empty;
+            PointF next = i < pts.Length - 1 ? UnitNormal(pts[i], pts[i + 1]) : PointF.Empty;
+            float x = previous.X + next.X, y = previous.Y + next.Y;
+            float length = (float)Math.Sqrt(x * x + y * y);
+            if (length < 1e-4f) return i > 0 ? previous : next;
+            return new PointF(x / length, y / length);
+        }
+
+        private static PointF UnitNormal(PointF from, PointF to)
+        {
+            float dx = to.X - from.X, dy = to.Y - from.Y;
+            float length = (float)Math.Sqrt(dx * dx + dy * dy);
+            if (length < 1e-6f) return PointF.Empty;
+            return new PointF(dy / length, -dx / length);   // 左法线
         }
 
         private static Pen MakeLinePen(Color color, double mmWidth, double dpm)
