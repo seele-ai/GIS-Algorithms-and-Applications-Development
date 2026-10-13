@@ -88,6 +88,13 @@ internal static class Program
                 firstRow.ToggleVisible();
                 // 工具条：投影下拉框 + “选择分带”按钮（仅高斯-克吕格/UTM 可用）
                 var toolbar = FindControl<ToolStrip>(form);
+                var shpButton = toolbar.Items.OfType<ToolStripButton>().FirstOrDefault(b => b.Text == "导入 SHP");
+                var postgisButton = toolbar.Items.OfType<ToolStripButton>().FirstOrDefault(b => b.Text == "PostGIS 数据源");
+                Check(shpButton != null && postgisButton != null, "SHP 导入与 PostGIS 数据源入口同时保留");
+                postgisButton.PerformClick();
+                Application.DoEvents();
+                Check(FindControl<PostGISDataSourceForm>(form)?.Visible == true, "PostGIS 数据源面板可以打开");
+                postgisButton.PerformClick();
                 ToolStripButton zoneButton = null;
                 ToolStripComboBox projectionCombo = null;
                 foreach (ToolStripItem item in toolbar.Items)

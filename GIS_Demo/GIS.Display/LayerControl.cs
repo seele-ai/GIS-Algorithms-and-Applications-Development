@@ -453,7 +453,6 @@ namespace GIS.Display
         private MapControl map;
 
         public IReadOnlyList<LayerControl> LayerRows => rows;
-
         public LayerManagerControl()
         {
             var title = new Label
