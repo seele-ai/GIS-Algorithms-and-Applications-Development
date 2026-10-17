@@ -24,9 +24,10 @@ namespace GIS.IO
             if (t == 8 || t == 18 || t == 28) return 8;
             throw new NotSupportedException("不支持的 SHP 类型：" + t);
         }
-        public static Layer Read(string path, bool assumeWgs84 = false)
+        public static Layer Read(string path, bool assumeWgs84 = false, bool preserveSourceDatum = false)
         {
-            var convert = PrjReader.Read(Path.ChangeExtension(path, ".prj"), assumeWgs84);
+            GeographicDatum sourceDatum;
+            var convert = PrjReader.Read(Path.ChangeExtension(path, ".prj"), assumeWgs84, out sourceDatum, preserveSourceDatum);
             var shapes = new List<Geometry>();
             int type;
             using (var r = new BinaryReader(File.OpenRead(path)))
@@ -54,7 +55,8 @@ namespace GIS.IO
             var fc = new FeatureClass(Path.GetFileNameWithoutExtension(path), type == 1 ? GeometryTypeConstant.Point :
                 type == 8 ? GeometryTypeConstant.MultiPoint : type == 3 ? GeometryTypeConstant.MultiLineString : GeometryTypeConstant.MultiPolygon);
             ReadDbf(Path.ChangeExtension(path, ".dbf"), fc, shapes);
-            var layer = new Layer(fc); layer.CaptureGeographic(null); return layer;
+            var layer = new Layer(fc) { GeographicDatum = preserveSourceDatum ? sourceDatum : GeographicDatum.Wgs84 };
+            layer.CaptureGeographic(null); return layer;
         }
         static Coordinate ReadPoint(BinaryReader r, Func<Coordinate, Coordinate> convert)
         {

@@ -15,7 +15,7 @@
 | 模块1 数据结构设计与地图投影实现 | 王小宇 | OGC 简单要素数据结构 + 地图投影/坐标转换 | 已完成（203 项自测全部通过） |
 | 模块2 图形显示与图层管理 | 白宇丹 | 地图绘制、图层管理、鼠标选择 | 已完成（231 项自动检查通过） |
 | 模块3 图层渲染与编辑 | 赵佶昊 | 点/线/面符号编辑器、唯一值/分级渲染、注记、色带、分带选择、渲染符号存取、坐标系统一到 WGS84、GCJ-02、自定义线段特性 | 已完成（231 项自动检查通过） |
-| 模块4 数据编辑与导入导出 | 李君迟 | shp 导入导出、要素选取/创建/编辑 | 已接入 shp 导入；导出与编辑待实现 |
+| 模块4 数据编辑与导入导出 | 李君迟 | shp 导入导出、要素选取/创建/编辑 | 已接入 shp 导入和标准 Shapefile 导出；要素编辑待实现 |
 | 模块5 与 PostGIS 交互 | 李雨晴 | 从数据库读取图层、保存图层 | 待补充 |
 
 ## 目录约定
@@ -29,6 +29,7 @@ GIS_program/
 ├── MapObjects/
 │   ├── GIS/                    类库（netstandard2.0，全组共用）
 │   │   ├── ShapefileReader.cs   SHP 几何与 DBF 属性读取（模块4）
+│   │   ├── ShapefileWriter.cs   SHP/SHX/DBF/PRJ/CPG 导出（模块4）
 │   │   ├── PrjReader.cs         PRJ 坐标系识别与坐标转换（模块4）
 │   │   ├── Renderer/           简单/唯一值/分级渲染器、色带 ColorRamp.cs、渲染符号文件 RendererFile.cs（模块3）
 │   │   ├── Projection/         投影（高斯-克吕格/UTM/Lambert）、UTM 纬度行 UtmGridZone.cs、大地基准 GeographicDatum.cs
@@ -607,7 +608,7 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 - `bin/`、`obj/`、`.vs/`、`*.user` 等编译产物不入库（已配置 .gitignore）。
 - 新功能按上述目录职责放入现有工程，模块4不再单独建文件夹或工程；公共接口变更先与对应成员沟通，统一在根目录 `GIS.sln` 中集成与验证。
 
-## 模块4：Shapefile 导入（李君迟）
+## 模块4：Shapefile 导入与导出（李君迟）
 
 - 文件位置与职责：
   - `MapObjects/GIS/ShapefileReader.cs`：读取 SHP 几何、DBF 属性和 CPG 编码，构建共享图层对象。
@@ -619,7 +620,51 @@ layer.Renderer.GetSymbolFor(feature)    // 模块3 的渲染器（首选）
 - 点击“导入 SHP”可多选文件，自动读取同目录同名的 .dbf、.prj、.cpg。顺序读取 SHP，不依赖 .shx。
 - 支持点、多点、多段线、多部件面和孔洞；Z/M 类型读取 XY，当前模型不保留高程和测量值。跳过空几何和 DBF 删除记录，保持属性与几何对应。
 - 属性编码优先采用 .cpg，其次使用 DBF 编码标志（03/57 为 1252），其余默认 GBK。支持字符、数值、浮点、日期、逻辑和二进制整数字段。
-- PRJ 支持 WKT1 的 WGS84、CGCS2000（按项目约定视作 WGS84）、北京54，以及 Lambert 双标准纬线、纬度原点为 0 的横轴墨卡托/高斯/UTM、标准 Web Mercator。北京54使用共享模块现有近似转换参数。
-- 坐标统一为 WGS84 后保存快照，再应用当前地图投影。缺少 PRJ 时由用户明确确认是否按 WGS84 经纬度解释；不支持的坐标系会提示失败，不猜测。
+- PRJ 支持 WKT1 的 WGS84、CGCS2000（明确确认后按项目约定视作 WGS84）、北京54、明确声明的 GCJ-02 地理坐标及自定义基准，以及 Lambert 双标准纬线、纬度原点为 0 的横轴墨卡托/高斯/UTM、标准 Web Mercator。北京54使用共享模块现有近似转换参数。
+- 导入先识别 PRJ 的 DATUM 并反算为源基准经纬度。WGS84 直接显示；非 WGS84 或无法识别的基准进入“投影到 WGS84”窗口，确认转换后才加入地图。未知基准保留 PRJ 椭球并允许手填七参数；缺少 PRJ 时也进入坐标系确认（仅限经纬度数据，投影坐标须补齐 PRJ）。取消则不导入。
 - 参考旧 SimpleGIS 的 SHP/DBF 二进制读取思路，并按 [ESRI Shapefile 规范](https://www.esri.com/library/whitepapers/pdfs/shapefile.pdf) 适配共享数据结构。
 - 自动检查增加启动、导入图层符号绑定、空记录属性对齐、中文编码和损坏文件检查。检查程序可选第二个参数传入真实 shp 数据目录进行集成验证。
+
+### Shapefile 导出（李君迟）
+
+使用方法：先导入图层，点击工具条 **“导出 SHP”**（窄窗口可在工具条右侧溢出菜单中找到），选择图层并点击 **“选择保存位置…”**。导出该图层的全部要素，包括隐藏图层；地图选择集不限制导出范围。空地图会提示先加载图层。
+
+- 输出同名 `.shp`、`.shx`、`.dbf`、`.prj`、`.cpg` 五件套。已有任一同名配套文件时，统一列出并确认后才覆盖。分享给其他 GIS 软件时请保留整套文件。
+- 坐标固定为 **WGS84 经纬度，X=经度、Y=纬度**。优先使用图层的经纬度快照，不受当前显示投影影响；无快照时按 `FeatureClass.ProjectionCS` 反算几何副本。非 WGS84 基准需先转换。不修改原图层、显示几何或选择集。本次不提供“导出当前显示投影”或“恢复导入前坐标系”选项。
+- 支持点、多点、单体/复合线、单体/复合面及孔洞。线统一写成 SHP PolyLine，面统一写成 SHP Polygon；外环顺时针、洞逆时针，环自动闭合。仅导出 XY，不导出 Z/M。空几何写 Null Shape，保留对应 DBF 行（现有读取器会跳过空几何）。
+- 属性采用 UTF-8 并写 CPG；支持文本、整数、浮点、日期、布尔和空值。DBF 日期仅保留年月日，数值字段读回当前项目后为 Double；文本尾部空格和空字符串不能与 DBF 填充/空值分别保留。
+- 字段名最长10字节：按完整 Unicode 字符缩短并去重，完成后显示原名→导出名。文本最长254字节、最多255字段；超长文本、无效坐标、非有限数值明确报错，不静默截断。
+- 写入前完成格式校验，普通 I/O 失败尝试恢复已有配套文件；不保证断电/进程终止时跨文件事务。输出文件和覆盖备份在内存中构建，大图层需要相应内存。
+- 参考旧 SimpleGIS `dbfFileManager` 和 `spglShpFileManager` 的几何/属性分离序列化思路适配；旧 SPGL 为自定义格式，本次实现标准 SHP 100字节头、混合字节序、16位字计长和 SHX 索引。
+
+新增代码位于既有目录，没有新建源码目录或工程：
+
+| 文件 | 职责 |
+|---|---|
+| `MapObjects/GIS/ShapefileWriter.cs` | 公共导出 API：`ShapefileWriter.Write(path, layer, overwrite: false)`；返回调整过的字段名映射 |
+| `GIS_Demo/GIS.Display.Demo/ShapefileExportForm.cs` | 图层选择、保存位置、配套文件覆盖确认和结果提示 |
+| `GIS_Demo/GIS.Display.Checks/ShapefileExportChecks.cs` | 几何/属性回读、孔洞方向、SHX 索引、投影、异常恢复及导出窗口检查 |
+
+`MainForm.cs` 接入工具条入口，`GIS.Display.Checks/Program.cs` 接入检查。沿用现有 `GIS.Display.Demo → GIS.Display → GIS` 引用链，SDK 工程自动包含新增 `.cs`。适配更新后的空地图主界面，未恢复已删除的案例功能。
+
+验证命令（仓库根目录）：
+
+```powershell
+dotnet build GIS.sln -m:1
+.\GIS_Demo\GIS.Display.Checks\bin\Debug\net48\GIS.Display.Checks.exe .\GIS_Demo\GIS.Display.Checks\obj\validation
+dotnet run --project MapObjects\GISDemo
+```
+
+本次基于更新后的代码验证：解决方案编译 0 警告、0 错误；GIS.Display.Checks 共 279 项通过（含新增 48 项导出检查）；模块1自测 203 项通过。导出窗口截图输出为检查目录中的 shapefile-export-dialog.png。
+
+### 导入时识别地理坐标系并确认转换
+
+- 识别依据为 PRJ 中的 `DATUM` 节点，而不是文件名、投影名称或坐标数值。WGS84 的地理坐标直接使用；WGS84 UTM/高斯/Lambert 等投影坐标先反投影，再按当前地图投影显示，不要求无意义的基准转换。
+- 北京54、明确声明的 GCJ-02：导入时打开既有 `ProjectToWgs84Form`，自动选中源坐标系；确认后复用 `LayerManagerControl.ConvertLayerToWgs84`，转换经纬度快照、标记为 WGS84，最后才加入地图。取消时不新增图层、不修改原文件。北京54内置参数精度约15米，用户可按地区修改。
+- CGCS2000：仍保留项目原有的按 WGS84 使用约定，但现在明确显示确认窗口，不再静默处理；这不是精密基准转换。
+- 未知基准（例如西安80或地方基准）：不因名称未识别而拒绝导入。保留 PRJ 的源椭球参数和源经纬度，进入转换窗口，可选择内置源坐标系或填写自定义七参数（源基准→WGS84，位置矢量法）。默认零参数不是已验证的转换参数，需由用户确认；全零表示只做源椭球换算，同椭球则无偏移。
+- 缺少 PRJ：进入同一确认窗口。仅能处理已确认是经纬度的数据；可选其源基准，或从默认 WGS84 椭球填写自定义偏移。投影坐标需要补齐投影定义，七参数不能代替反投影。损坏的 PRJ、无效/缺失椭球参数、未实现的投影方法仍会提示具体原因。
+- 文件读取层新增 `preserveSourceDatum` 选项：主界面使用 `true`，让临时图层携带源基准，交由界面确认；原有调用默认保持已支持基准自动转 WGS84 的行为。临时源基准快照不会在确认前交给地图绘制。手工转换入口也会预选图层实际标记的基准。
+- 修改位于既有 `PrjReader.cs`、`ShapefileReader.cs`、`MainForm.cs`、`LayerControl.cs`、`UI/ProjectToWgs84Form.cs`；新增验证放入既有 `ShapefileChecks.cs`。无新增目录、工程或分支。
+
+验证：解决方案编译 0 警告、0 错误；自动检查共 **297项通过**，含本轮新增18项识别、提示路由、取消、手填参数、源椭球保留及 WGS84 UTM 导入检查，并保留上一轮全部 SHP 导出检查。转换窗口截图为检查输出目录的 `import-datum-confirm.png`。

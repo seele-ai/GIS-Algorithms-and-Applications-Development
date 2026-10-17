@@ -58,6 +58,7 @@ namespace GIS.Display.Demo
             AddAction("全图", () => ZoomToAllLayers());
             AddAction("清空选择", () => Map.ClearSelection());
             AddAction("导入 SHP", ImportShapefiles);
+            AddAction("导出 SHP", ExportShapefile);
             toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
@@ -109,9 +110,35 @@ namespace GIS.Display.Demo
             Shown += (s, e) => UpdateStatus();
         }
 
-        public Layer ImportShapefile(string path, bool assumeWgs84 = false)
+        private void ExportShapefile()
         {
-            Layer layer = ShapefileReader.Read(path, assumeWgs84);
+            if (Map.Layers.Count == 0)
+            {
+                MessageBox.Show(this, "请先导入数据或加载图层。", "导出 SHP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var form = new ShapefileExportForm(Map.Layers)) form.ShowDialog(this);
+        }
+
+        public Layer ImportShapefile(string path, bool assumeWgs84 = false, Func<Layer, GeographicDatum> confirmConversion = null)
+        {
+            // 未确认的源基准只保存在临时图层中，转换完成前不加入地图。
+            Layer layer = ShapefileReader.Read(path, assumeWgs84, preserveSourceDatum: true);
+            if (!string.Equals(layer.GeographicDatum.GeoCSName, GeographicDatum.Wgs84.GeoCSName, StringComparison.Ordinal))
+            {
+                GeographicDatum source;
+                if (confirmConversion != null) source = confirmConversion(layer);
+                else
+                {
+                    using (var dialog = new ProjectToWgs84Form(layer, false, detectedSource: true))
+                    {
+                        if (dialog.ShowDialog(this) != DialogResult.OK) return null;
+                        source = dialog.SourceDatum;
+                    }
+                }
+                if (source == null) return null;
+                LayerManagerControl.ConvertLayerToWgs84(layer, null, source);
+            }
             layer.ApplyProjection(currentProjection);
             Map.AddLayer(layer);
             if (!layer.FeatureClass.GetEnvelope().IsNull) Map.SetExtent(layer.FeatureClass.GetEnvelope());
@@ -127,14 +154,7 @@ namespace GIS.Display.Demo
                 var errors = new List<string>();
                 foreach (string path in dialog.FileNames)
                 {
-                    bool assume = false;
-                    if (!File.Exists(Path.ChangeExtension(path, ".prj")))
-                    {
-                        if (MessageBox.Show(this, Path.GetFileName(path) + " 缺少 .prj。是否按 WGS84 经纬度导入？\r\n投影坐标数据请补齐 .prj 后再导入。",
-                            "确认源坐标系", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) continue;
-                        assume = true;
-                    }
-                    try { ImportShapefile(path, assume); }
+                    try { ImportShapefile(path); }
                     catch (Exception ex) { errors.Add(Path.GetFileName(path) + "：" + ex.Message); }
                 }
                 if (errors.Count > 0) MessageBox.Show(this, string.Join("\r\n", errors), "部分文件未导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);

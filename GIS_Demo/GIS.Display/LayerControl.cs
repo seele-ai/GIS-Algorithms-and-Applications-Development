@@ -572,7 +572,7 @@ namespace GIS.Display
         /// 转换完再按当前投影重新生成显示几何；因此转换结果与当前显示投影无关，
         /// 之后反复切换投影也不会把它“转回去”。
         /// </summary>
-        private static int ConvertLayerToWgs84(Layer layer, ProjectionCS projection, GeographicDatum source)
+        public static int ConvertLayerToWgs84(Layer layer, ProjectionCS projection, GeographicDatum source)
         {
             if (!layer.HasGeographicGeometries) layer.CaptureGeographic(projection);
             int count = 0;
