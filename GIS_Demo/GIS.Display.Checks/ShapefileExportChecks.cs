@@ -125,7 +125,7 @@ internal static class ShapefileExportChecks
         using (var main = new MainForm())
         {
             main.Map.AddLayer(new Layer(names)); main.Map.AddLayer(new Layer(fcNull));
-            check(main.Controls.OfType<ToolStrip>().SelectMany(t => t.Items.OfType<ToolStripButton>()).Any(b => b.Text == "导出 SHP"), "新版主界面接入导出按钮");
+            check(main.Controls.OfType<ToolStrip>().SelectMany(t => t.Items.OfType<ToolStripButton>()).Any(b => b.Text == "导出要素"), "新版主界面接入导出按钮");
             var type = typeof(MainForm).Assembly.GetType("GIS.Display.Demo.ShapefileExportForm");
             using (var dialog = (Form)Activator.CreateInstance(type, new object[] { main.Map.Layers }))
             {

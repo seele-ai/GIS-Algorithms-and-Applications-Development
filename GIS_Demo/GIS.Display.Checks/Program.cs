@@ -62,6 +62,8 @@ internal static class Program
             TestModule3Extensions();
             ShapefileChecks.Run(output, Check, args.Length > 1 ? args[1] : null);
             ShapefileExportChecks.Run(output, Check);
+            FeatureCreationChecks.Run(output, Check);
+            FeatureEditingChecks.Run(output, Check);
             using (var form = new MainForm())
             {
                 // 创建真实控件句柄和完成布局，但不显示测试窗口。
