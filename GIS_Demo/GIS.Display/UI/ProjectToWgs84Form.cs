@@ -30,7 +30,7 @@ namespace GIS.Display.UI
         /// <summary>用户在界面上确认的源地理坐标系（含填写的七参数）。</summary>
         public GeographicDatum SourceDatum { get; private set; }
 
-        public ProjectToWgs84Form(Layer layer, bool projected)
+        public ProjectToWgs84Form(Layer layer, bool projected, bool detectedSource = false)
         {
             this.layer = layer;
             this.projected = projected;
@@ -63,6 +63,8 @@ namespace GIS.Display.UI
 
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 36, Padding = new Padding(12, 6, 0, 0), WrapContents = false };
             top.Controls.Add(new Label { Text = "该图层当前的地理坐标系", AutoSize = true, Margin = new Padding(0, 8, 6, 0) });
+            int sourceIndex = datums.FindIndex(d => d.GeoCSName == SourceDatum.GeoCSName);
+            if (sourceIndex < 0) { datums.Add(SourceDatum.Clone()); sourceIndex = datums.Count - 1; }
             foreach (GeographicDatum datum in datums) datumBox.Items.Add(datum.DisplayName);
             datumBox.SelectedIndex = 0;
             datumBox.SelectedIndexChanged += (s, e) => LoadParameters();
@@ -112,6 +114,21 @@ namespace GIS.Display.UI
             Controls.Add(hint);
             Controls.Add(btns);
 
+            if (detectedSource)
+            {
+                Text = "导入：检测到非 WGS84 地理坐标系";
+                hint.Text = "已从 PRJ 识别源地理坐标系：“" + SourceDatum.DisplayName + "”。\r\n" +
+                    "本系统使用 WGS84 绘图，请确认转换后再显示；取消则不导入该文件。";
+                bool unknown = SourceDatum.GeoCSName.StartsWith("USER_DEFINED:", StringComparison.Ordinal);
+                datumBox.Enabled = unknown;
+                if (unknown)
+                {
+                    Text = "导入：请确认源坐标系与转换参数";
+                    hint.Text = "无法自动确定到 WGS84 的转换，请选择源坐标系或填写自定义七参数。\r\n" +
+                        "确认后才显示，取消则不导入；缺少 PRJ 时仅可处理经纬度数据。";
+                }
+            }
+            datumBox.SelectedIndex = sourceIndex;
             LoadParameters();
         }
 
@@ -127,7 +144,8 @@ namespace GIS.Display.UI
         private void LoadParameters()
         {
             GeographicDatum datum = datums[Math.Max(0, datumBox.SelectedIndex)];
-            bool useParameters = !datum.IsGcj02 && !datum.IsWgs84;
+            bool custom = datum.GeoCSName.StartsWith("USER_DEFINED:", StringComparison.Ordinal);
+            bool useParameters = custom || (!datum.IsGcj02 && !datum.IsWgs84);
             double[] values = { datum.Dx, datum.Dy, datum.Dz, datum.Rx, datum.Ry, datum.Rz, datum.ScalePpm };
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -143,6 +161,8 @@ namespace GIS.Display.UI
                 : "参数含义：本基准 → WGS84（Bursa-Wolf 七参数，位置矢量法）。\r\n" +
                   "参数已按公开来源（EPSG 等）自动填好，通常直接点“开始转换”即可；如需更高精度可改为本地区实测参数。\r\n" +
                   "系统内置的坐标系都带有明确转换方式与出处，没有可靠转换参数的坐标系（西安80、CGCS2000）已从列表中移除。";
+            if (datum.GeoCSName == "GCS_China_Geodetic_Coordinate_System_2000")
+                note.Text = "已识别 CGCS2000，并非 WGS84。\r\n按项目现有约定，其经纬度直接按 WGS84 使用，不施加七参数偏移。\r\n这不是精密基准转换；接受此约定后点“开始转换”，否则取消导入。";
             UpdateEstimate();
         }
 

@@ -61,6 +61,9 @@ internal static class Program
             TestDrawing();
             TestModule3Extensions();
             ShapefileChecks.Run(output, Check, args.Length > 1 ? args[1] : null);
+            ShapefileExportChecks.Run(output, Check);
+            FeatureCreationChecks.Run(output, Check);
+            FeatureEditingChecks.Run(output, Check);
             using (var form = new MainForm())
             {
                 // 创建真实控件句柄和完成布局，但不显示测试窗口。
@@ -88,7 +91,8 @@ internal static class Program
                 firstRow.ToggleVisible();
                 // 工具条：投影下拉框 + “选择分带”按钮（仅高斯-克吕格/UTM 可用）
                 var toolbar = FindControl<ToolStrip>(form);
-                var shpButton = toolbar.Items.OfType<ToolStripButton>().FirstOrDefault(b => b.Text == "导入 SHP");
+                var shpButton = toolbar.Items.OfType<ToolStripButton>()
+                    .FirstOrDefault(b => b.Text == "导入要素" || b.Text == "导入 SHP");
                 var postgisButton = toolbar.Items.OfType<ToolStripButton>().FirstOrDefault(b => b.Text == "PostGIS 数据源");
                 Check(shpButton != null && postgisButton != null, "SHP 导入与 PostGIS 数据源入口同时保留");
                 postgisButton.PerformClick();
