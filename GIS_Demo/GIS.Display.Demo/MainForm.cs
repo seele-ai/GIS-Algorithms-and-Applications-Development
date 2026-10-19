@@ -319,11 +319,10 @@ namespace GIS.Display.Demo
             {
                 string selectedTable = form.SelectedTable;
                 string selectedSchema = form.SelectedSchema;
-                int maximumFeatureCount = form.MaximumFeatureCount;
                 PostGISConnection selectedConnection = form.Connection;
                 PostGISReadOnlyLayerContext context = await Task.Run(() =>
                     new PostGISImporter(selectedConnection).LoadReadOnlyLayerContext(
-                        selectedTable, selectedSchema, 4326, maximumFeatureCount, token, progress), token);
+                        selectedTable, selectedSchema, 4326, 0, token, progress), token);
 
                 Layer layer = context.Layer;
                 layer.Symbol = CreateDefaultSymbol(layer.FeatureClass.GeometryType);

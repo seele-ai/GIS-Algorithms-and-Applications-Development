@@ -24,7 +24,6 @@ namespace GIS.Display.Demo
         private PostGISConnection connection;
         private string connectionSignature;
         private bool tableListLoaded;
-        private NumericUpDown maximumFeatures;
         private Label loadStatus;
         private Button cancelLoad;
 
@@ -35,8 +34,6 @@ namespace GIS.Display.Demo
         public PostGISConnection Connection { get { return connection; } }
         public string SelectedSchema { get; private set; }
         public string SelectedTable { get; private set; }
-        public int MaximumFeatureCount { get { return (int)maximumFeatures.Value; } }
-
         public PostGISDataSourceForm()
         {
             InitializeComponent();
@@ -55,20 +52,7 @@ namespace GIS.Display.Demo
             actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
             actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
             var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-            options.Controls.Add(new Label { Text = "最多加载", AutoSize = true, Margin = new Padding(2, 7, 2, 0) });
-            maximumFeatures = new NumericUpDown
-            {
-                Minimum = 0,
-                Maximum = 10000000,
-                Increment = 10000,
-                Value = 50000,
-                Width = 85,
-                ThousandsSeparator = true,
-                Margin = new Padding(2, 3, 2, 0)
-            };
-            options.Controls.Add(maximumFeatures);
-            options.Controls.Add(new Label { Text = "个（0=全部）", AutoSize = true, Margin = new Padding(0, 7, 6, 0) });
-            loadStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(2, 7, 2, 0) };
+            loadStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(2, 7, 8, 0) };
             options.Controls.Add(loadStatus);
             cancelLoad = new Button { Text = "取消", Enabled = false, Width = 56, Height = 25, Margin = new Padding(5, 1, 0, 0) };
             cancelLoad.Click += (s, e) => { if (CancelLoadRequested != null) CancelLoadRequested(this, EventArgs.Empty); };
@@ -80,7 +64,6 @@ namespace GIS.Display.Demo
         public void BeginLayerLoading()
         {
             add.Enabled = connect.Enabled = tables.Enabled = false;
-            maximumFeatures.Enabled = false;
             cancelLoad.Enabled = true;
             loadStatus.Text = "正在读取…";
         }
@@ -97,7 +80,7 @@ namespace GIS.Display.Demo
 
         public void EndLayerLoading()
         {
-            connect.Enabled = tables.Enabled = maximumFeatures.Enabled = true;
+            connect.Enabled = tables.Enabled = true;
             add.Enabled = tables.Items.Count > 0;
             cancelLoad.Enabled = false;
         }

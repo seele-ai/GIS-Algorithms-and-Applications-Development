@@ -191,7 +191,7 @@ PostGISCommitResult result = service.CommitChanges(context, changes);
 
 ## 主程序集成
 
-PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可在后台把数据库图层加入当前地图。数据源面板可设置单次加载上限并取消正在执行的读取。非 4326 图层由 PostGIS 转换为 4326 后显示。点击“上传 PostGIS”可以选择地图图层、Schema、表名、目标 SRID以及新建、覆盖或追加方式。独立数据库演示与测试工程已从简洁版本中移除。
+PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可在后台把数据库图层加入当前地图，读取过程中可以查看进度或取消操作。非 4326 图层由 PostGIS 转换为 4326 后显示。点击“上传 PostGIS”可以选择地图图层、Schema、表名、目标 SRID以及新建、覆盖或追加方式。独立数据库演示与测试工程已从简洁版本中移除。
 
 ## 当前边界
 
