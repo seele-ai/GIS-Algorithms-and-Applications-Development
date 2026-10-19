@@ -45,6 +45,8 @@ namespace GIS.Display
                 Cursor = value == MapInteractionMode.Pan ? Cursors.Hand : Cursors.Cross;
             }
         }
+        /// <summary>模块4选择范围；null 表示全部可见、可选图层。</summary>
+        public Layer SelectionLayer { get; set; }
         public SelectMethodConstant SelectionMethod { get; set; } = SelectMethodConstant.CreateNew;
         public ILayerRenderer Renderer
         {
@@ -75,6 +77,7 @@ namespace GIS.Display
         public bool RemoveLayer(Layer layer)
         {
             if (layer == null || !layers.Remove(layer)) return false;
+            if (ReferenceEquals(SelectionLayer, layer)) SelectionLayer = null;
             bool hadSelection = selections[layer].Count > 0;
             selections.Remove(layer);
             nonSelectable.Remove(layer);
@@ -173,6 +176,7 @@ namespace GIS.Display
         {
             foreach (Layer layer in layers)
             {
+                if (SelectionLayer != null && !ReferenceEquals(layer, SelectionLayer)) continue;
                 if (!layer.Visible || nonSelectable.Contains(layer))
                 {
                     selections[layer].Clear();
@@ -231,6 +235,7 @@ namespace GIS.Display
             foreach (Layer layer in layers)
             {
                 int before = selections[layer].Count;
+                if (SelectionLayer != null && !ReferenceEquals(layer, SelectionLayer)) continue;
                 if (!layer.Visible || nonSelectable.Contains(layer)) selections[layer].Clear();
                 else selections[layer].Intersect(layer.FeatureClass.Features);
                 changed |= before != selections[layer].Count;

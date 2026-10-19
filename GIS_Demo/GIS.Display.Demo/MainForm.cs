@@ -9,12 +9,12 @@ using GIS.Display.UI;
 
 namespace GIS.Display.Demo
 {
-    public sealed class MainForm : Form
+    public sealed partial class MainForm : Form
     {
         // 1度约111.32km（按纬度折算），用于把经纬度换算为地图比例尺所需的米
         private const double MetersPerDegree = 111320.0;
 
-        public MapControl Map { get; } = new MapControl { Dock = DockStyle.Fill };
+        public FeatureCreationMap Map { get; } = new FeatureCreationMap { Dock = DockStyle.Fill };
         private readonly LayerManagerControl layerManager = new LayerManagerControl { Dock = DockStyle.Fill };
         private readonly ToolStripStatusLabel scale = new ToolStripStatusLabel();
         private readonly ToolStripStatusLabel selected = new ToolStripStatusLabel();
@@ -22,6 +22,12 @@ namespace GIS.Display.Demo
         private readonly ListView selectionList = new ListView { Dock = DockStyle.Fill,
             View = View.Details, FullRowSelect = true, GridLines = true };
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
+
+        private readonly ToolStrip editToolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
+        private readonly ToolStripComboBox editLayer = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 190 };
+        private readonly Label sketchHint = new Label { Dock = DockStyle.Top, Height = 28, Padding = new Padding(12, 0, 0, 0), TextAlign = ContentAlignment.MiddleLeft, Text = "", Visible = false };
+        private bool updatingEditLayers;
+        private ToolStripButton createFeatureButton;
 
         // 当前地图显示坐标系：null 表示经纬度（地理坐标），否则为选定投影
         private ProjectionCS currentProjection;
@@ -51,13 +57,15 @@ namespace GIS.Display.Demo
                 Dock = DockStyle.Top, Height = 32, Padding = new Padding(12, 0, 0, 0),
                 TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.FromArgb(247, 243, 239) };
             AddMode("平移", MapInteractionMode.Pan);
-            AddMode("放大 / 框放大", MapInteractionMode.ZoomIn);
+            AddMode("放大", MapInteractionMode.ZoomIn);
             AddMode("缩小", MapInteractionMode.ZoomOut);
-            AddMode("选择 / 框选", MapInteractionMode.Select);
-            toolbar.Items.Add(new ToolStripSeparator());
             AddAction("全图", () => ZoomToAllLayers());
+            toolbar.Items.Add(new ToolStripSeparator());
+            AddMode("选择", MapInteractionMode.Select);
             AddAction("清空选择", () => Map.ClearSelection());
-            AddAction("导入 SHP", ImportShapefiles);
+            toolbar.Items.Add(new ToolStripSeparator());
+            AddAction("导入要素", ImportShapefiles);
+            AddAction("导出要素", ExportShapefile);
             toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
@@ -98,20 +106,118 @@ namespace GIS.Display.Demo
             Controls.Add(split);
             Controls.Add(lower);
             Controls.Add(hint);
+            BuildEditingToolbar();
+            Controls.Add(sketchHint);
             Controls.Add(toolbar);
+            Controls.Add(editToolbar);
             Controls.Add(heading);
             Controls.Add(status);
             layerManager.Bind(Map);
             Map.ViewChanged += (s, e) => UpdateStatus();
             Map.SelectionChanged += (s, e) => UpdateSelection();
-            Map.LayersChanged += (s, e) => UpdateStatus();
+            Map.LayersChanged += (s, e) => { UpdateStatus(); RefreshEditingLayers(); };
+            RefreshEditingLayers();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
             Shown += (s, e) => UpdateStatus();
         }
 
-        public Layer ImportShapefile(string path, bool assumeWgs84 = false)
+        private void BuildEditingToolbar()
         {
-            Layer layer = ShapefileReader.Read(path, assumeWgs84);
+            sketchHint.TextChanged += (s, e) => sketchHint.Visible = !string.IsNullOrEmpty(sketchHint.Text);
+            var newLayer = new ToolStripButton("新建图层");
+            newLayer.Click += (s, e) => {
+                using (var dialog = new CreateLayerForm())
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                    Layer layer = dialog.CreatedLayer;
+                    if (Map.Layers.Any(l => l.Name == layer.Name))
+                    { MessageBox.Show(this, "已有同名图层，请使用不同名称。", "新建图层"); return; }
+                    Map.EndCreation(); layer.ApplyProjection(currentProjection); Map.AddLayer(layer); MarkEdited(layer);
+                    editLayer.SelectedItem = layer;
+                    if (Map.Layers.All(l => l.FeatureClass.Features.Count == 0))
+                    {
+                        Coordinate center = currentProjection == null ? new Coordinate(116.4,39.9) : currentProjection.TransferToProjCo(new Coordinate(116.4,39.9));
+                        double span = currentProjection == null ? 1 : 100000;
+                        Map.SetExtent(new Envelope(center.X-span, center.X+span, center.Y-span, center.Y+span));
+                    }
+                    sketchHint.Text = "图层已创建；点击“创建要素”开始描绘，完成后点击“保存编辑”确认当前页面的修改。";
+                }
+            };
+            editToolbar.Items.Add(newLayer); editToolbar.Items.Add(new ToolStripLabel("操作/选择范围")); editToolbar.Items.Add(editLayer);
+            editLayer.ComboBox.DisplayMember = "Name";
+            editLayer.SelectedIndexChanged += (s, e) => {
+                if (updatingEditLayers) return;
+                Map.EndCreation(); Map.SelectionLayer = editLayer.SelectedItem as Layer; Map.ClearSelection();
+                sketchHint.Text = Map.SelectionLayer == null ? "点选/框选作用于所有可见且可选图层。" : "点选/框选仅作用于：" + Map.SelectionLayer.Name;
+            };
+            BuildExistingEditingMenu();
+            BuildSaveEditingButton();
+            createFeatureButton = new ToolStripButton("创建要素");
+            createFeatureButton.Click += (s,e) => {
+                try { Map.BeginCreation(editLayer.SelectedItem as Layer); }
+                catch (InvalidOperationException ex) { MessageBox.Show(this, ex.Message, "创建要素"); }
+            };
+            editToolbar.Items.Add(createFeatureButton);
+            AddEditAction("完成要素", () => Map.FinishSketch());
+            AddEditAction("结束部件", () => Map.FinishPart());
+            AddEditAction("撤销顶点", () => Map.UndoVertex());
+            AddEditAction("取消草图", () => Map.CancelSketch());
+            AddEditAction("退出创建", () => { Map.InteractionMode = MapInteractionMode.Select; });
+
+            Map.RequestAttributes = fields => {
+                if (fields.Count == 0) return new Attributes(fields);
+                using (var dialog = new NewFeatureAttributesForm(fields)) return dialog.ShowDialog(this) == DialogResult.OK ? dialog.Values : null;
+            };
+            Map.SketchChanged += text => {
+                sketchHint.Text = text; createFeatureButton.Checked = Map.IsCreating;
+                foreach (ToolStripButton button in toolbar.Items.OfType<ToolStripButton>())
+                    if (button.Tag is MapInteractionMode) button.Checked = !Map.IsCreating && Equals(button.Tag, Map.InteractionMode);
+            };
+            Map.FeatureCreated += (layer, feature) => { MarkEdited(layer); layerManager.Rebuild(); UpdateSelection(); };
+        }
+        private void AddEditAction(string text, Action action)
+        {
+            var button = new ToolStripButton(text); button.Click += (s,e) => { action(); Map.Focus(); }; editToolbar.Items.Add(button);
+        }
+        private void RefreshEditingLayers()
+        {
+            Layer chosen = editLayer.SelectedItem as Layer;
+            updatingEditLayers = true;
+            editLayer.Items.Clear(); editLayer.Items.Add("所有可选图层");
+            foreach (Layer layer in Map.Layers.Reverse()) editLayer.Items.Add(layer);
+            editLayer.SelectedItem = chosen != null && Map.Layers.Contains(chosen) ? (object)chosen : editLayer.Items[0];
+            Map.SelectionLayer = editLayer.SelectedItem as Layer;
+            updatingEditLayers = false;
+        }
+        private void ExportShapefile()
+        {
+            if (Map.Layers.Count == 0)
+            {
+                MessageBox.Show(this, "请先导入数据或加载图层。", "导出要素", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var form = new ShapefileExportForm(Map.Layers)) form.ShowDialog(this);
+        }
+
+        public Layer ImportShapefile(string path, bool assumeWgs84 = false, Func<Layer, GeographicDatum> confirmConversion = null)
+        {
+            // 未确认的源基准只保存在临时图层中，转换完成前不加入地图。
+            Layer layer = ShapefileReader.Read(path, assumeWgs84, preserveSourceDatum: true);
+            if (!string.Equals(layer.GeographicDatum.GeoCSName, GeographicDatum.Wgs84.GeoCSName, StringComparison.Ordinal))
+            {
+                GeographicDatum source;
+                if (confirmConversion != null) source = confirmConversion(layer);
+                else
+                {
+                    using (var dialog = new ProjectToWgs84Form(layer, false, detectedSource: true))
+                    {
+                        if (dialog.ShowDialog(this) != DialogResult.OK) return null;
+                        source = dialog.SourceDatum;
+                    }
+                }
+                if (source == null) return null;
+                LayerManagerControl.ConvertLayerToWgs84(layer, null, source);
+            }
             layer.ApplyProjection(currentProjection);
             Map.AddLayer(layer);
             if (!layer.FeatureClass.GetEnvelope().IsNull) Map.SetExtent(layer.FeatureClass.GetEnvelope());
@@ -127,14 +233,7 @@ namespace GIS.Display.Demo
                 var errors = new List<string>();
                 foreach (string path in dialog.FileNames)
                 {
-                    bool assume = false;
-                    if (!File.Exists(Path.ChangeExtension(path, ".prj")))
-                    {
-                        if (MessageBox.Show(this, Path.GetFileName(path) + " 缺少 .prj。是否按 WGS84 经纬度导入？\r\n投影坐标数据请补齐 .prj 后再导入。",
-                            "确认源坐标系", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) continue;
-                        assume = true;
-                    }
-                    try { ImportShapefile(path, assume); }
+                    try { ImportShapefile(path); }
                     catch (Exception ex) { errors.Add(Path.GetFileName(path) + "：" + ex.Message); }
                 }
                 if (errors.Count > 0) MessageBox.Show(this, string.Join("\r\n", errors), "部分文件未导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -145,6 +244,7 @@ namespace GIS.Display.Demo
         private void SetProjection(int index, bool force)
         {
             if (!force && index == currentProjectionIndex) return;
+            Map.EndCreation();
             ProjectionCS oldProjection = currentProjection;
 
             ProjectionCS newProjection = CreateProjection(index);
