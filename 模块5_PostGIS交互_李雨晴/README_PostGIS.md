@@ -9,6 +9,7 @@
 └── GIS.PostGIS/
     ├── PostGISConnection.cs
     ├── PostGISSchemaMapper.cs
+    ├── PostGISColumnNames.cs
     ├── PostGISExporter.cs
     ├── PostGISExportMode.cs
     ├── PostGISImporter.cs
@@ -62,6 +63,8 @@
 - 保存完整 FeatureClass；
 - 单要素追加；
 - 支持新建、覆盖和向已有表追加三种完整图层写入方式；
+- 新建或覆盖时保留原图层的 `ID`、`geom` 等属性，系统主键和 Geometry 列自动避开重名；
+- 追加时识别目标表的 Geometry 列，并在写入前检查源属性字段、几何类型及 SRID；
 - 源、目标 SRID 不同时通过 `ST_Transform` 在数据库端转换；
 - 支持进度通知和取消，取消或失败时回滚整个事务；
 - 事务提交和失败回滚。

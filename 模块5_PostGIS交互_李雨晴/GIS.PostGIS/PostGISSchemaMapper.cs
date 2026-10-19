@@ -13,6 +13,38 @@ namespace GIS.PostGIS
         public const string DefaultIdColumnName = "id";
         public const string DefaultGeometryColumnName = "geom";
 
+        /// <summary>保留源属性字段，并为新表选择不冲突的系统主键和几何列。</summary>
+        public static PostGISColumnNames ResolveSystemColumnNames(Fields fields)
+        {
+            if (fields == null) throw new ArgumentNullException(nameof(fields));
+            HashSet<string> used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < fields.Count; i++)
+            {
+                Field field = fields.GetItem(i);
+                if (field == null) throw new ArgumentException("Fields 中不能包含 null 字段。", nameof(fields));
+                ValidateIdentifier(field.Name, "field.Name");
+                if (!used.Add(field.Name))
+                    throw new ArgumentException("属性字段名称重复：" + field.Name, nameof(fields));
+            }
+
+            string id = ChooseUnusedName(DefaultIdColumnName, "gis_id", used);
+            used.Add(id);
+            string geometry = ChooseUnusedName(DefaultGeometryColumnName, "gis_geom", used);
+            return new PostGISColumnNames(id, geometry);
+        }
+
+        private static string ChooseUnusedName(string preferred, string fallback, HashSet<string> used)
+        {
+            if (!used.Contains(preferred)) return preferred;
+            if (!used.Contains(fallback)) return fallback;
+            for (int suffix = 2; suffix < int.MaxValue; suffix++)
+            {
+                string candidate = fallback + "_" + suffix;
+                if (!used.Contains(candidate)) return candidate;
+            }
+            throw new InvalidOperationException("无法生成不冲突的数据库列名。");
+        }
+
         /// <summary>
         /// 将 GIS 字段类型映射为 PostgreSQL 字段类型。
         /// </summary>

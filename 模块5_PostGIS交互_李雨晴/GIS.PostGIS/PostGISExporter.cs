@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Text;
 using System.Threading;
@@ -39,8 +40,9 @@ namespace GIS.PostGIS
                 {
                     try
                     {
+                        PostGISColumnNames columns = PostGISSchemaMapper.ResolveSystemColumnNames(featureClass.Fields);
                         PrepareTable(connection, transaction, featureClass, tableName, srid,
-                            overwriteExisting, schemaName);
+                            overwriteExisting, schemaName, columns);
                         transaction.Commit();
                     }
                     catch
@@ -100,15 +102,23 @@ namespace GIS.PostGIS
                 {
                     try
                     {
-                        if (mode != PostGISExportMode.Append)
+                        PostGISColumnNames columns;
+                        if (mode == PostGISExportMode.Append)
                         {
+                            columns = ReadAppendColumns(connection, transaction, featureClass,
+                                tableName, targetSrid, schemaName);
+                        }
+                        else
+                        {
+                            columns = PostGISSchemaMapper.ResolveSystemColumnNames(featureClass.Fields);
                             PrepareTable(connection, transaction, featureClass, tableName, targetSrid,
-                                mode == PostGISExportMode.Overwrite, schemaName);
+                                mode == PostGISExportMode.Overwrite, schemaName, columns);
                         }
 
                         int insertedCount = 0;
                         using (NpgsqlCommand command = CreateInsertCommand(connection, transaction,
-                            featureClass, tableName, sourceSrid, targetSrid, schemaName))
+                            featureClass, tableName, sourceSrid, targetSrid, schemaName,
+                            columns.GeometryColumnName))
                         using (cancellationToken.Register(() => { try { command.Cancel(); } catch { } }))
                         {
                             for (int i = 0; i < featureClass.Features.Count; i++)
@@ -159,9 +169,12 @@ namespace GIS.PostGIS
                 {
                     try
                     {
+                        PostGISColumnNames columns = ReadAppendColumns(connection, transaction,
+                            featureClass, tableName, srid, schemaName);
                         int affected;
                         using (NpgsqlCommand command = CreateInsertCommand(
-                            connection, transaction, featureClass, tableName, srid, srid, schemaName))
+                            connection, transaction, featureClass, tableName, srid, srid, schemaName,
+                            columns.GeometryColumnName))
                         {
                             SetParameterValues(command, featureClass, feature);
                             affected = command.ExecuteNonQuery();
@@ -185,7 +198,8 @@ namespace GIS.PostGIS
             string tableName,
             int srid,
             bool overwriteExisting,
-            string schemaName)
+            string schemaName,
+            PostGISColumnNames columns)
         {
             if (overwriteExisting)
             {
@@ -195,12 +209,79 @@ namespace GIS.PostGIS
             }
 
             string createTableSql = PostGISSchemaMapper.BuildCreateTableSql(
-                featureClass, tableName, srid, schemaName);
+                featureClass, tableName, srid, schemaName,
+                columns.IdColumnName, columns.GeometryColumnName);
             ExecuteNonQuery(connection, transaction, createTableSql);
 
             string createIndexSql = PostGISSchemaMapper.BuildCreateSpatialIndexSql(
-                tableName, schemaName);
+                tableName, schemaName, columns.GeometryColumnName);
             ExecuteNonQuery(connection, transaction, createIndexSql);
+        }
+
+        private static PostGISColumnNames ReadAppendColumns(
+            NpgsqlConnection connection, NpgsqlTransaction transaction,
+            FeatureClass featureClass, string tableName, int targetSrid, string schemaName)
+        {
+            const string sql = @"
+SELECT column_name, udt_name
+FROM information_schema.columns
+WHERE table_schema = @schema AND table_name = @table;";
+            HashSet<string> targetFields = new HashSet<string>(StringComparer.Ordinal);
+            List<string> geometryFields = new List<string>();
+            using (NpgsqlCommand command = new NpgsqlCommand(sql, connection, transaction))
+            {
+                command.Parameters.Add("schema", NpgsqlDbType.Text).Value = schemaName;
+                command.Parameters.Add("table", NpgsqlDbType.Text).Value = tableName;
+                using (NpgsqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        string name = reader.GetString(0);
+                        targetFields.Add(name);
+                        if (reader.GetString(1) == "geometry") geometryFields.Add(name);
+                    }
+                }
+            }
+            if (targetFields.Count == 0)
+                throw new InvalidOperationException("目标表 " + schemaName + "." + tableName + " 不存在，或当前用户无权访问。");
+            if (geometryFields.Count != 1)
+                throw new NotSupportedException("追加上传需要目标表恰好有一个 Geometry 字段；当前找到 " +
+                    geometryFields.Count + " 个。");
+            for (int i = 0; i < featureClass.Fields.Count; i++)
+            {
+                string name = featureClass.Fields.GetItem(i).Name;
+                if (string.Equals(name, geometryFields[0], StringComparison.Ordinal))
+                    throw new InvalidOperationException("属性字段 \"" + name +
+                        "\" 与目标 Geometry 列同名，无法作为普通属性追加。请使用新建/覆盖表。");
+                if (!targetFields.Contains(name))
+                    throw new InvalidOperationException("目标表缺少属性字段 \"" + name + "\"。请使用新建/覆盖表，或先在数据库中添加该字段。");
+            }
+
+            const string metadataSql = @"
+SELECT type, srid FROM geometry_columns
+WHERE f_table_schema = @schema AND f_table_name = @table AND f_geometry_column = @geometry;";
+            using (NpgsqlCommand command = new NpgsqlCommand(metadataSql, connection, transaction))
+            {
+                command.Parameters.Add("schema", NpgsqlDbType.Text).Value = schemaName;
+                command.Parameters.Add("table", NpgsqlDbType.Text).Value = tableName;
+                command.Parameters.Add("geometry", NpgsqlDbType.Text).Value = geometryFields[0];
+                using (NpgsqlDataReader reader = command.ExecuteReader())
+                {
+                    if (!reader.Read())
+                        throw new NotSupportedException("无法识别目标表 Geometry 字段的类型和 SRID。");
+                    string type = reader.GetString(0);
+                    int srid = reader.GetInt32(1);
+                    string expectedType = PostGISSchemaMapper.GetPostGisGeometryType(featureClass.GeometryType);
+                    if (!string.Equals(type, expectedType, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(type, "GEOMETRY", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("目标表 Geometry 类型为 " + type +
+                            "，当前图层为 " + expectedType + "，无法追加。");
+                    if (srid > 0 && srid != targetSrid)
+                        throw new InvalidOperationException("目标表 SRID 为 " + srid +
+                            "，上传设置为 " + targetSrid + "。请将目标 SRID 改为 " + srid + " 后重试。");
+                }
+            }
+            return new PostGISColumnNames(null, geometryFields[0]);
         }
 
         private static NpgsqlCommand CreateInsertCommand(
@@ -210,7 +291,8 @@ namespace GIS.PostGIS
             string tableName,
             int sourceSrid,
             int targetSrid,
-            string schemaName)
+            string schemaName,
+            string geometryColumnName)
         {
             if (sourceSrid < 0 || targetSrid < 0 ||
                 (sourceSrid != targetSrid && (sourceSrid == 0 || targetSrid == 0)))
@@ -229,7 +311,7 @@ namespace GIS.PostGIS
             }
             if (featureClass.Fields.Count > 0)
                 sql.Append(", ");
-            sql.Append(PostGISSchemaMapper.QuoteIdentifier(PostGISSchemaMapper.DefaultGeometryColumnName));
+            sql.Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName));
             sql.Append(") VALUES (");
 
             for (int i = 0; i < featureClass.Fields.Count; i++)
@@ -304,7 +386,9 @@ namespace GIS.PostGIS
                 throw new ArgumentException("FeatureClass.Features 不能为空。", nameof(featureClass));
 
             // 复用 SchemaMapper 的完整字段和几何类型校验，但不执行 SQL。
-            PostGISSchemaMapper.BuildCreateTableSql(featureClass, "validation_table", 0);
+            PostGISColumnNames columns = PostGISSchemaMapper.ResolveSystemColumnNames(featureClass.Fields);
+            PostGISSchemaMapper.BuildCreateTableSql(featureClass, "validation_table", 0,
+                PostGISSchemaMapper.DefaultSchemaName, columns.IdColumnName, columns.GeometryColumnName);
         }
 
         private static void ValidateFeature(FeatureClass featureClass, Feature feature, int featureIndex)

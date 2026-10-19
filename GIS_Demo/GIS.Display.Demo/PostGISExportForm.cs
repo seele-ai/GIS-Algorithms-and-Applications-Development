@@ -118,7 +118,13 @@ namespace GIS.Display.Demo
                 return;
 
             FeatureClass source;
-            try { source = CreateWgs84FeatureClass(layer); }
+            PostGISColumnNames newTableColumns;
+            try
+            {
+                source = CreateWgs84FeatureClass(layer);
+                newTableColumns = exportMode == PostGISExportMode.Append
+                    ? null : PostGISSchemaMapper.ResolveSystemColumnNames(source.Fields);
+            }
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message, "准备上传数据失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -139,7 +145,11 @@ namespace GIS.Display.Demo
                     cancellation.Token, report));
                 progress.Value = progress.Maximum;
                 status.Text = "上传完成";
-                MessageBox.Show(this, "已向 " + schemaName + "." + tableName + " 写入 " + written + " 个要素。",
+                string columnNotice = newTableColumns == null ? string.Empty :
+                    "\r\n数据库主键：" + newTableColumns.IdColumnName +
+                    "；Geometry 列：" + newTableColumns.GeometryColumnName + "。";
+                MessageBox.Show(this, "已向 " + schemaName + "." + tableName + " 写入 " + written + " 个要素。" +
+                    columnNotice,
                     "上传成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (OperationCanceledException)
