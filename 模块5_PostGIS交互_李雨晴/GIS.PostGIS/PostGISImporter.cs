@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Text;
+using System.Threading;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -73,23 +74,77 @@ ORDER BY table_schema, table_name;";
         public PostGISReadOnlyLayerContext LoadReadOnlyLayerContext(string tableName,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
+            return LoadReadOnlyLayerContext(tableName, schemaName, 0, 0,
+                CancellationToken.None, null);
+        }
+
+        /// <summary>
+        /// 只读加载空间图层，可在数据库端转换到目标 SRID，并限制返回的要素数量。
+        /// targetSrid 为 0 时保留数据源 SRID；maximumFeatureCount 为 0 时不限制数量。
+        /// </summary>
+        public PostGISReadOnlyLayerContext LoadReadOnlyLayerContext(string tableName,
+            string schemaName, int targetSrid, int maximumFeatureCount,
+            CancellationToken cancellationToken, IProgress<int> progress)
+        {
+            if (targetSrid < 0)
+                throw new ArgumentOutOfRangeException(nameof(targetSrid));
+            if (maximumFeatureCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(maximumFeatureCount));
+            cancellationToken.ThrowIfCancellationRequested();
             GeometryMetadata geometry = ReadGeometryMetadata(tableName, schemaName);
+            int outputSrid = targetSrid == 0 ? geometry.Srid : targetSrid;
+            if (outputSrid != geometry.Srid && geometry.Srid <= 0)
+                throw new NotSupportedException("数据源没有有效 SRID，无法安全转换到 EPSG:" + outputSrid + "。");
             List<string> warnings = new List<string>();
             Fields fields = ReadFieldsInternal(tableName, schemaName, geometry.ColumnName, null, warnings);
             FeatureClass featureClass = CreateFeatureClass(tableName, geometry.GeometryType, fields);
-            featureClass.Srid = geometry.Srid;
-            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName, false, null);
+            featureClass.Srid = outputSrid;
+            int sqlLimit = maximumFeatureCount > 0 && maximumFeatureCount < int.MaxValue
+                ? maximumFeatureCount + 1 : maximumFeatureCount;
+            string sql = BuildSelectSql(fields, tableName, schemaName, geometry.ColumnName,
+                false, null, PostGISSchemaMapper.DefaultIdColumnName, outputSrid, geometry.Srid, sqlLimit);
+            int loadedCount = 0;
+            bool truncated = false;
 
             using (NpgsqlConnection connection = _database.CreateConnection())
             {
                 connection.Open();
                 using (NpgsqlCommand command = new NpgsqlCommand(sql, connection))
-                using (NpgsqlDataReader reader = command.ExecuteReader())
+                using (cancellationToken.Register(() => { try { command.Cancel(); } catch { } }))
                 {
-                    while (reader.Read())
-                        featureClass.Add(ReadFeature(reader, 0, featureClass));
+                    try
+                    {
+                        using (NpgsqlDataReader reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                if (maximumFeatureCount > 0 && loadedCount >= maximumFeatureCount)
+                                {
+                                    truncated = true;
+                                    break;
+                                }
+                                featureClass.Add(ReadFeature(reader, 0, featureClass));
+                                loadedCount++;
+                                if (progress != null && loadedCount % 250 == 0)
+                                    progress.Report(loadedCount);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                            throw new OperationCanceledException("加载已取消。", ex, cancellationToken);
+                        throw;
+                    }
                 }
             }
+
+            if (progress != null) progress.Report(loadedCount);
+            if (outputSrid != geometry.Srid)
+                warnings.Add("已由 PostGIS 将 EPSG:" + geometry.Srid + " 转换为 EPSG:" + outputSrid + "。" );
+            if (truncated)
+                warnings.Add("空间表数据量较大，本次只加载前 " + maximumFeatureCount + " 个要素；可在数据源面板调整上限。" );
 
             Layer layer = new Layer(tableName, featureClass);
             PostGISLayerSource source = new PostGISLayerSource(
@@ -396,7 +451,8 @@ ORDER BY a.attnum;";
 
         private static string BuildSelectSql(Fields fields, string tableName, string schemaName,
             string geometryColumnName, bool includeId, string whereSql,
-            string keyColumnName = PostGISSchemaMapper.DefaultIdColumnName)
+            string keyColumnName = PostGISSchemaMapper.DefaultIdColumnName,
+            int outputSrid = 0, int sourceSrid = 0, int maximumRows = 0)
         {
             StringBuilder sql = new StringBuilder("SELECT ");
             bool hasPrevious = false;
@@ -412,11 +468,18 @@ ORDER BY a.attnum;";
                 hasPrevious = true;
             }
             if (hasPrevious) sql.Append(", ");
-            sql.Append("ST_AsText(").Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName))
-               .Append(") AS geometry_wkt FROM ")
+            sql.Append("ST_AsText(");
+            if (outputSrid > 0 && sourceSrid > 0 && outputSrid != sourceSrid)
+                sql.Append("ST_Transform(").Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName))
+                   .Append(", ").Append(outputSrid).Append(')');
+            else
+                sql.Append(PostGISSchemaMapper.QuoteIdentifier(geometryColumnName));
+            sql.Append(") AS geometry_wkt FROM ")
                .Append(PostGISSchemaMapper.GetQualifiedTableName(schemaName, tableName));
             if (!string.IsNullOrWhiteSpace(whereSql))
                 sql.Append(" WHERE ").Append(whereSql);
+            if (maximumRows > 0)
+                sql.Append(" LIMIT ").Append(maximumRows);
             sql.Append(';');
             return sql.ToString();
         }

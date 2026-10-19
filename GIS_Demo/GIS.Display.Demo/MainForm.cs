@@ -3,6 +3,8 @@ using System.Drawing;
 using System.Linq;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using GIS.IO;
 using System.Windows.Forms;
 using GIS.PostGIS;
@@ -26,6 +28,7 @@ namespace GIS.Display.Demo
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
         private readonly Dictionary<Layer, PostGISReadOnlyLayerContext> postgisLayers = new Dictionary<Layer, PostGISReadOnlyLayerContext>();
         private PostGISDataSourceForm postGISDataSourcePanel;
+        private CancellationTokenSource postGISLoadCancellation;
         private SplitContainer mainContent;
         private bool mainContentSplitterInitialized;
 
@@ -74,6 +77,7 @@ namespace GIS.Display.Demo
             AddAction("导出要素", ExportShapefile);
             toolbar.Items.Add(new ToolStripSeparator());
             AddAction("PostGIS 数据源", TogglePostGISDataSourcePanel);
+            AddAction("上传 PostGIS", ExportToPostGIS);
             toolbar.Items.Add(new ToolStripSeparator());
             toolbar.Items.Add(new ToolStripLabel("投影"));
             projectionCombo = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 232 };
@@ -103,7 +107,8 @@ namespace GIS.Display.Demo
             mainContent = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
             mainContent.Panel1.Controls.Add(mapContent);
             postGISDataSourcePanel = new PostGISDataSourceForm();
-            postGISDataSourcePanel.TableSelected += (s, e) => AddSelectedPostGISLayer();
+            postGISDataSourcePanel.TableSelected += async (s, e) => await AddSelectedPostGISLayerAsync();
+            postGISDataSourcePanel.CancelLoadRequested += (s, e) => postGISLoadCancellation?.Cancel();
             postGISDataSourcePanel.CloseRequested += (s, e) => mainContent.Panel2Collapsed = true;
             mainContent.Panel2.Controls.Add(postGISDataSourcePanel);
             // Form 作为子控件嵌入 SplitContainer 后不会自动进入可见状态，
@@ -138,6 +143,7 @@ namespace GIS.Display.Demo
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
             Shown += (s, e) => { ConfigureMainContentSplitter(); UpdateStatus(); };
             mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
+            FormClosed += (s, e) => postGISLoadCancellation?.Cancel();
         }
 
         private void ConfigureMainContentSplitter()
@@ -279,22 +285,45 @@ namespace GIS.Display.Demo
                 postGISDataSourcePanel.BringToFront();
         }
 
-        private void AddSelectedPostGISLayer()
+        private void ExportToPostGIS()
+        {
+            if (Map.Layers.Count == 0)
+            {
+                MessageBox.Show(this, "请先导入数据或加载图层。", "上传 PostGIS",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (postGISDataSourcePanel.Connection == null)
+            {
+                mainContent.Panel2Collapsed = false;
+                postGISDataSourcePanel.BringToFront();
+                MessageBox.Show(this, "请先在右侧 PostGIS 数据源面板连接数据库。", "上传 PostGIS",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var form = new PostGISExportForm(postGISDataSourcePanel.Connection, Map.Layers))
+                form.ShowDialog(this);
+        }
+
+        private async Task AddSelectedPostGISLayerAsync()
         {
             PostGISDataSourceForm form = postGISDataSourcePanel;
             if (form.Connection == null || string.IsNullOrWhiteSpace(form.SelectedTable)) return;
+            if (postGISLoadCancellation != null) return;
+
+            postGISLoadCancellation = new CancellationTokenSource();
+            CancellationToken token = postGISLoadCancellation.Token;
+            var progress = new Progress<int>(count => form.ReportLayerLoading(count));
+            form.BeginLayerLoading();
             try
             {
-                PostGISReadOnlyLayerContext context = new PostGISImporter(form.Connection)
-                    .LoadReadOnlyLayerContext(form.SelectedTable, form.SelectedSchema);
-                if (context.Source.Srid != 4326)
-                {
-                    MessageBox.Show(this,
-                        "当前主程序只接收 EPSG:4326 的经纬度数据。\r\n" +
-                        "该图层 SRID 为 " + context.Source.Srid + "，已拒绝加载，避免静默误投影。",
-                        "坐标系不匹配", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
+                string selectedTable = form.SelectedTable;
+                string selectedSchema = form.SelectedSchema;
+                int maximumFeatureCount = form.MaximumFeatureCount;
+                PostGISConnection selectedConnection = form.Connection;
+                PostGISReadOnlyLayerContext context = await Task.Run(() =>
+                    new PostGISImporter(selectedConnection).LoadReadOnlyLayerContext(
+                        selectedTable, selectedSchema, 4326, maximumFeatureCount, token, progress), token);
 
                 Layer layer = context.Layer;
                 layer.Symbol = CreateDefaultSymbol(layer.FeatureClass.GeometryType);
@@ -311,10 +340,20 @@ namespace GIS.Display.Demo
                     warning,
                     "PostGIS", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+            catch (OperationCanceledException)
+            {
+                form.ShowLayerLoadingCancelled();
+            }
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message, "添加 PostGIS 图层失败",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                form.EndLayerLoading();
+                postGISLoadCancellation.Dispose();
+                postGISLoadCancellation = null;
             }
         }
 

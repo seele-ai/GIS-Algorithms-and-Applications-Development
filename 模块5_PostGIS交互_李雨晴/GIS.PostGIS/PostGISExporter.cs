@@ -1,6 +1,7 @@
 using System;
 using System.Data;
 using System.Text;
+using System.Threading;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -62,8 +63,36 @@ namespace GIS.PostGIS
             bool overwriteExisting = false,
             string schemaName = PostGISSchemaMapper.DefaultSchemaName)
         {
-            ValidateFeatureClass(featureClass);
+            return ExportFeatureClass(featureClass, tableName, srid, srid,
+                overwriteExisting ? PostGISExportMode.Overwrite : PostGISExportMode.CreateNew,
+                schemaName, CancellationToken.None, null);
+        }
 
+        /// <summary>
+        /// 将一个完整图层写入 PostGIS。输入几何采用 sourceSrid；当目标 SRID 不同时，
+        /// 由 PostGIS 在事务内使用 ST_Transform 转换。追加模式不创建或删除目标表。
+        /// </summary>
+        public int ExportFeatureClass(
+            FeatureClass featureClass,
+            string tableName,
+            int sourceSrid,
+            int targetSrid,
+            PostGISExportMode mode,
+            string schemaName = PostGISSchemaMapper.DefaultSchemaName,
+            CancellationToken cancellationToken = default(CancellationToken),
+            IProgress<int> progress = null)
+        {
+            ValidateFeatureClass(featureClass);
+            if (sourceSrid < 0)
+                throw new ArgumentOutOfRangeException(nameof(sourceSrid), "源 SRID 不能为负数。");
+            if (targetSrid < 0)
+                throw new ArgumentOutOfRangeException(nameof(targetSrid), "目标 SRID 不能为负数。");
+            if (sourceSrid != targetSrid && (sourceSrid == 0 || targetSrid == 0))
+                throw new ArgumentException("执行坐标转换时，源和目标 SRID 都必须为有效的正整数。");
+            if (!Enum.IsDefined(typeof(PostGISExportMode), mode))
+                throw new ArgumentOutOfRangeException(nameof(mode));
+
+            cancellationToken.ThrowIfCancellationRequested();
             using (NpgsqlConnection connection = _database.CreateConnection())
             {
                 connection.Open();
@@ -71,29 +100,38 @@ namespace GIS.PostGIS
                 {
                     try
                     {
-                        PrepareTable(connection, transaction, featureClass, tableName, srid,
-                            overwriteExisting, schemaName);
+                        if (mode != PostGISExportMode.Append)
+                        {
+                            PrepareTable(connection, transaction, featureClass, tableName, targetSrid,
+                                mode == PostGISExportMode.Overwrite, schemaName);
+                        }
 
                         int insertedCount = 0;
-                        using (NpgsqlCommand command = CreateInsertCommand(
-                            connection, transaction, featureClass, tableName, srid, schemaName))
+                        using (NpgsqlCommand command = CreateInsertCommand(connection, transaction,
+                            featureClass, tableName, sourceSrid, targetSrid, schemaName))
+                        using (cancellationToken.Register(() => { try { command.Cancel(); } catch { } }))
                         {
                             for (int i = 0; i < featureClass.Features.Count; i++)
                             {
+                                cancellationToken.ThrowIfCancellationRequested();
                                 Feature feature = featureClass.Features.GetItem(i);
                                 ValidateFeature(featureClass, feature, i);
                                 SetParameterValues(command, featureClass, feature);
                                 command.ExecuteNonQuery();
                                 insertedCount++;
+                                if (progress != null && (insertedCount == featureClass.Features.Count || insertedCount % 100 == 0))
+                                    progress.Report(insertedCount);
                             }
                         }
 
                         transaction.Commit();
                         return insertedCount;
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        transaction.Rollback();
+                        try { transaction.Rollback(); } catch { }
+                        if (cancellationToken.IsCancellationRequested)
+                            throw new OperationCanceledException("上传已取消，数据库事务已回滚。", ex, cancellationToken);
                         throw;
                     }
                 }
@@ -123,7 +161,7 @@ namespace GIS.PostGIS
                     {
                         int affected;
                         using (NpgsqlCommand command = CreateInsertCommand(
-                            connection, transaction, featureClass, tableName, srid, schemaName))
+                            connection, transaction, featureClass, tableName, srid, srid, schemaName))
                         {
                             SetParameterValues(command, featureClass, feature);
                             affected = command.ExecuteNonQuery();
@@ -170,11 +208,13 @@ namespace GIS.PostGIS
             NpgsqlTransaction transaction,
             FeatureClass featureClass,
             string tableName,
-            int srid,
+            int sourceSrid,
+            int targetSrid,
             string schemaName)
         {
-            if (srid < 0)
-                throw new ArgumentOutOfRangeException(nameof(srid), "SRID 不能为负数；未知坐标系请使用 0。");
+            if (sourceSrid < 0 || targetSrid < 0 ||
+                (sourceSrid != targetSrid && (sourceSrid == 0 || targetSrid == 0)))
+                throw new ArgumentOutOfRangeException(nameof(sourceSrid), "源和目标 SRID 无效。");
 
             StringBuilder sql = new StringBuilder();
             sql.Append("INSERT INTO ")
@@ -200,7 +240,10 @@ namespace GIS.PostGIS
             }
             if (featureClass.Fields.Count > 0)
                 sql.Append(", ");
-            sql.Append("ST_GeomFromText(@geometry_wkt, @geometry_srid));");
+            if (sourceSrid == targetSrid)
+                sql.Append("ST_GeomFromText(@geometry_wkt, @source_srid));");
+            else
+                sql.Append("ST_Transform(ST_GeomFromText(@geometry_wkt, @source_srid), @target_srid));");
 
             NpgsqlCommand command = new NpgsqlCommand(sql.ToString(), connection, transaction);
             for (int i = 0; i < featureClass.Fields.Count; i++)
@@ -209,7 +252,9 @@ namespace GIS.PostGIS
                 command.Parameters.Add("p" + i, GetNpgsqlDbType(field.ValueType));
             }
             command.Parameters.Add("geometry_wkt", NpgsqlDbType.Text);
-            command.Parameters.Add("geometry_srid", NpgsqlDbType.Integer).Value = srid;
+            command.Parameters.Add("source_srid", NpgsqlDbType.Integer).Value = sourceSrid;
+            if (sourceSrid != targetSrid)
+                command.Parameters.Add("target_srid", NpgsqlDbType.Integer).Value = targetSrid;
             return command;
         }
 

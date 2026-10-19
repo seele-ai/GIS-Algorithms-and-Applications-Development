@@ -10,6 +10,7 @@
     ├── PostGISConnection.cs
     ├── PostGISSchemaMapper.cs
     ├── PostGISExporter.cs
+    ├── PostGISExportMode.cs
     ├── PostGISImporter.cs
     ├── PostGISFeatureRecord.cs
     ├── PostGISLayerSource.cs
@@ -60,7 +61,9 @@
 - 创建空空间表；
 - 保存完整 FeatureClass；
 - 单要素追加；
-- 显式选择是否覆盖同名表；
+- 支持新建、覆盖和向已有表追加三种完整图层写入方式；
+- 源、目标 SRID 不同时通过 `ST_Transform` 在数据库端转换；
+- 支持进度通知和取消，取消或失败时回滚整个事务；
 - 事务提交和失败回滚。
 
 ```csharp
@@ -91,6 +94,8 @@ int count = exporter.SaveFeatureClass(
 只读地图加载使用 `LoadReadOnlyLayerContext()`。它不要求空间表存在主键，因此普通空间表和
 空间视图也可以加载。返回的 `PostGISReadOnlyLayerContext` 包含 `Layer`、来源信息和导入提示。
 如果表中有当前 GIS 数据结构无法准确表达的字段，该字段会被跳过并在 `Warnings` 中说明。
+重载接口可以指定目标 SRID、最大要素数、取消令牌和进度通知。主程序使用该接口把数据库
+图层在 PostGIS 端转换为 EPSG:4326，并限制单次读入数量。
 
 ```csharp
 PostGISReadOnlyLayerContext context = importer.LoadReadOnlyLayerContext("roads", "public");
@@ -186,7 +191,7 @@ PostGISCommitResult result = service.CommitChanges(context, changes);
 
 ## 主程序集成
 
-PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可把数据库图层加入当前地图。独立数据库演示与测试工程已从简洁版本中移除。
+PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可在后台把数据库图层加入当前地图。数据源面板可设置单次加载上限并取消正在执行的读取。非 4326 图层由 PostGIS 转换为 4326 后显示。点击“上传 PostGIS”可以选择地图图层、Schema、表名、目标 SRID以及新建、覆盖或追加方式。独立数据库演示与测试工程已从简洁版本中移除。
 
 ## 当前边界
 
@@ -195,9 +200,9 @@ PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“Po
 - 每张空间表目前支持一个 Geometry 字段。
 - Geometry 不能为空。
 - 导入普通外部表时，无法由本模块数据结构准确表达的字段会被只读导入器跳过并报告提示。
-- 当前主程序只接受 EPSG:4326 图层，其他 SRID 会明确拒绝，不进行静默转换。
+- 数据源 SRID 必须有效，非 EPSG:4326 图层通过 PostGIS 的 `ST_Transform` 转换后加载。
 - `Byte` 和 `Int16` 在 PostgreSQL 中都保存为 SMALLINT，重新读取后统一表现为 Int16。
-- 当前按单要素参数化 INSERT，适合课程项目与常规数据；超大批量导入可后续增加 PostgreSQL COPY。
+- 当前按单要素参数化 INSERT，上传在后台执行并支持取消，适合课程项目与常规数据；超大批量导入可后续增加 PostgreSQL COPY。
 
 ## 模块边界
 
