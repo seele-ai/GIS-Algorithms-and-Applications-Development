@@ -6,22 +6,18 @@
 
 ```text
 模块5_PostGIS交互_李雨晴/
-├── GIS.PostGIS.sln
-├── GIS.PostGIS/
-│   ├── PostGISConnection.cs
-│   ├── PostGISSchemaMapper.cs
-│   ├── PostGISExporter.cs
-│   ├── PostGISImporter.cs
-│   ├── PostGISFeatureRecord.cs
-│   ├── PostGISLayerSource.cs
-│   ├── PostGISReadOnlyLayerContext.cs
-│   ├── PostGISLayerContext.cs
-│   ├── PostGISChangeSet.cs
-│   ├── PostGISCommitResult.cs
-│   └── PostGISService.cs
-└── GIS.PostGIS.Demo/
-    ├── Program.cs
-    └── PostGISIntegrationChecks.cs
+└── GIS.PostGIS/
+    ├── PostGISConnection.cs
+    ├── PostGISSchemaMapper.cs
+    ├── PostGISExporter.cs
+    ├── PostGISImporter.cs
+    ├── PostGISFeatureRecord.cs
+    ├── PostGISLayerSource.cs
+    ├── PostGISReadOnlyLayerContext.cs
+    ├── PostGISLayerContext.cs
+    ├── PostGISChangeSet.cs
+    ├── PostGISCommitResult.cs
+    └── PostGISService.cs
 ```
 
 目标框架为 .NET Framework 4.8，引用模块1的 `GIS` 类库，数据库驱动为 `Npgsql 4.1.14`。
@@ -188,38 +184,9 @@ PostGISCommitResult result = service.CommitChanges(context, changes);
 
 距离单位是空间表坐标系单位。SRID 4326 下为角度，不应把传入数值直接理解为米；按米查询应使用合适的投影坐标系或后续增加 geography 查询。
 
-## 测试方法
+## 主程序集成
 
-运行 `GIS.PostGIS.Demo`：
-
-1. 输入数据库连接参数；
-2. 确认 PostGIS 连接成功；
-3. 可选择 Point 简单闭环测试；
-4. 可选择模块5完整数据库检查。
-
-完整检查会覆盖：
-
-- 六种 Geometry 双向转换；
-- NULL 属性；
-- Fields、Geometry 类型、SRID 和要素数量；
-- INSERT、UPDATE、DELETE；
-- 数据库 id 映射；
-- ST_Intersects、ST_DWithin、ST_Contains、ST_Distance；
-- ClearTable、DeleteTable。
-
-检查会覆盖或创建以下专用测试表：
-
-```text
-public.postgis_test_point
-public.postgis_test_linestring
-public.postgis_test_polygon
-public.postgis_test_multipoint
-public.postgis_test_multilinestring
-public.postgis_test_multipolygon
-public.postgis_test_management（测试后删除）
-```
-
-不要把上述名称用于正式数据。
+PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可把数据库图层加入当前地图。独立数据库演示与测试工程已从简洁版本中移除。
 
 ## 当前边界
 
