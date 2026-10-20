@@ -451,6 +451,13 @@ namespace GIS.Display
         };
         private readonly List<LayerControl> rows = new List<LayerControl>();
         private MapControl map;
+        private readonly List<GIS.Display.UI.AttributeTableForm> attributeTables = new List<GIS.Display.UI.AttributeTableForm>();
+        public event Action<Layer, Feature> AttributeEditRequested;
+        public event Action SaveEditsRequested;
+        public void RefreshAttributeTables()
+        {
+            foreach (var table in attributeTables.ToArray()) if (!table.IsDisposed) table.ReloadRows();
+        }
 
         public IReadOnlyList<LayerControl> LayerRows => rows;
 
@@ -689,7 +696,11 @@ namespace GIS.Display
 
         private void OpenAttributes(LayerControl c)
         {
-            var form = new GIS.Display.UI.AttributeTableForm(c.Layer);
+            var form = new GIS.Display.UI.AttributeTableForm(c.Layer, map);
+            attributeTables.Add(form);
+            form.FormClosed += (sender, args) => attributeTables.Remove(form);
+            form.EditRequested += feature => AttributeEditRequested?.Invoke(c.Layer, feature);
+            form.SaveEditsRequested += () => SaveEditsRequested?.Invoke();
             form.FeatureSelected += feature => {
                 var sel = new Features();
                 sel.Add(feature);
@@ -706,7 +717,12 @@ namespace GIS.Display
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && map != null) map.LayersChanged -= OnLayersChanged;
+            if (disposing)
+            {
+                foreach (var table in attributeTables.ToArray()) table.Dispose();
+                attributeTables.Clear();
+                if (map != null) map.LayersChanged -= OnLayersChanged;
+            }
             base.Dispose(disposing);
         }
     }

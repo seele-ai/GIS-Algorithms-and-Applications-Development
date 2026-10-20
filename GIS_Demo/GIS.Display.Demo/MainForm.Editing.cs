@@ -16,6 +16,19 @@ namespace GIS.Display.Demo
         private readonly Stack<EditHistory> editRedo = new Stack<EditHistory>();
         private void BuildExistingEditingMenu()
         {
+            layerManager.AttributeEditRequested += (layer, feature) => {
+                try
+                {
+                    if (Map.IsCreating) throw new InvalidOperationException("请先完成或退出当前创建。");
+                    if (!layer.Visible || !Map.IsLayerSelectable(layer)) throw new InvalidOperationException("目标图层必须可见且可选。");
+                    using (var dialog = new NewFeatureAttributesForm(layer.FeatureClass.Fields, feature.Attributes))
+                        if (dialog.ShowDialog(Form.ActiveForm ?? this) == DialogResult.OK)
+                            RememberEdit(layer, FeatureEditCommand.Save(layer, feature, FeatureEditCommand.ReadGeometry(layer, feature), dialog.Values));
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is OverflowException)
+                { MessageBox.Show(this, ex.Message, "编辑属性", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            };
+            layerManager.SaveEditsRequested += SavePendingEdits;
             var menu = new ToolStripDropDownButton("编辑");
             AddEditingMenuItem(menu,"编辑顶点 / 移动要素…", () => {
                 var selection = EditingSelection(true); var feature = selection.Item2[0];
@@ -76,7 +89,7 @@ namespace GIS.Display.Demo
         }
         private void EditingCompleted(string message)
         {
-            Map.RefreshMap(); layerManager.Rebuild(); UpdateSelection(); UpdateStatus(); sketchHint.Text = message;
+            Map.RefreshMap(); layerManager.RefreshAttributeTables(); layerManager.Rebuild(); UpdateSelection(); UpdateStatus(); sketchHint.Text = message;
         }
     }
 }

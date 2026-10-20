@@ -14,6 +14,43 @@ internal static class FeatureEditingChecks
     }
     public static void Run(string output, Action<bool,string> check)
     {
+        // 多字段属性表：窗口布局、选择同步、双击编辑与刷新后的引用一致性。
+        var tableFc = new FeatureClass("多字段属性表", GeometryTypeConstant.Point);
+        for (int i = 0; i < 60; i++) tableFc.Fields.Add(new Field("字段" + i, FieldTypeConstant.Text));
+        var tableValues = Enumerable.Range(0, 60).Select(i => (object)("属性内容" + i)).ToArray();
+        var tableFeature = new Feature(Geometry.FromWKT("POINT (116 39)"), new Attributes(tableFc.Fields, tableValues));
+        tableFc.Add(tableFeature); tableFc.Add(tableFeature.Clone());
+        var tableLayer = new Layer(tableFc); tableLayer.CaptureGeographic(null);
+        using (var tableMap = new GIS.Display.MapControl())
+        {
+            tableMap.AddLayer(tableLayer);
+            var selection = new Features(); selection.Add(tableFeature); tableMap.SetSelection(tableLayer, selection, SelectMethodConstant.CreateNew);
+            using (var table = new GIS.Display.UI.AttributeTableForm(tableLayer, tableMap))
+            {
+                table.ShowInTaskbar = false; table.Opacity = 0; table.Show(); Application.DoEvents();
+                var tableGrid = Descendants(table).OfType<DataGridView>().Single();
+                check(table.FormBorderStyle == FormBorderStyle.Sizable && table.MaximizeBox && tableGrid.Columns.Cast<DataGridViewColumn>().All(c => c.Width >= 90), "60字段属性表保持可读列宽且支持缩放");
+                check(tableGrid.Rows[0].DefaultCellStyle.BackColor != tableGrid.Rows[1].DefaultCellStyle.BackColor, "打开属性表高亮地图已选要素");
+                int oldWidth = tableGrid.Width; table.Width += 150; Application.DoEvents();
+                check(tableGrid.Width > oldWidth && tableGrid.ScrollBars == ScrollBars.Both, "属性表随窗口伸展并保留横向滚动");
+                tableMap.ClearSelection();
+                check(tableGrid.Rows[0].DefaultCellStyle.BackColor == tableGrid.Rows[1].DefaultCellStyle.BackColor, "清空地图选择同步取消表格高亮");
+                table.FeatureSelected += feature => { var selected = new Features(); selected.Add(feature); tableMap.SetSelection(tableLayer, selected, SelectMethodConstant.CreateNew); };
+                FeatureEditCommand tableCommand = null;
+                table.EditRequested += feature => { var values = feature.Attributes.ToArray(); values[0] = "双击修改"; tableCommand = FeatureEditCommand.Save(tableLayer, feature, FeatureEditCommand.ReadGeometry(tableLayer, feature), new Attributes(tableFc.Fields, values)); };
+                typeof(DataGridView).GetMethod("OnCellDoubleClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(tableGrid, new object[] { new DataGridViewCellEventArgs(0, 1) });
+                check(ReferenceEquals(tableMap.GetSelection(tableLayer)[0], tableFc.Features[1]) && (string)tableGrid.Rows[1].Cells[0].Value == "双击修改", "双击按要素引用选择并保存后更新表格");
+                tableCommand.Undo(); table.ReloadRows();
+                check((string)tableGrid.Rows[1].Cells[0].Value == "属性内容0", "撤销后属性表回显原值");
+                tableCommand.Redo(); table.ReloadRows();
+                check((string)tableGrid.Rows[1].Cells[0].Value == "双击修改", "重做后属性表回显修改");
+                var deletion = FeatureEditCommand.Delete(tableLayer, new[] { tableFeature }); table.ReloadRows();
+                check(tableGrid.Rows.Count == 1 && ReferenceEquals(tableGrid.Rows[0].Tag, tableFc.Features[0]), "删除后表格行仍绑定正确要素");
+                deletion.Undo(); table.ReloadRows();
+                using (var bitmap = new System.Drawing.Bitmap(table.Width, table.Height)) { table.DrawToBitmap(bitmap, table.ClientRectangle); bitmap.Save(Path.Combine(output, "attribute-table-many-fields.png"), ImageFormat.Png); }
+                table.Close();
+            }
+        }
         foreach (var wkt in new[] { "POINT (116 39)", "MULTIPOINT ((116 39), (117 40))", "LINESTRING (116 39, 117 40)", "MULTILINESTRING ((116 39,117 40),(118 39,119 40))", "POLYGON ((110 30,114 30,114 34,110 34,110 30),(111 31,111 32,112 32,112 31,111 31))", "MULTIPOLYGON (((110 30,112 30,112 32,110 32,110 30)),((114 30,116 30,116 32,114 32,114 30)))" })
         {
             var geometry = Geometry.FromWKT(wkt); var fc = new FeatureClass("编辑测试",geometry.GeometryType);
