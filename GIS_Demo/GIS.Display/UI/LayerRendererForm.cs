@@ -33,6 +33,7 @@ namespace GIS.Display.UI
 
         private bool suppressRamp;
         private ColorRamp currentRamp;
+        private int ActionButtonHeight => Math.Max(36, Font.Height + 16);
 
         /// <summary>“应用”时触发（不关闭窗体），供调用方刷新地图与图层面板。</summary>
         public event Action RendererApplied;
@@ -62,20 +63,14 @@ namespace GIS.Display.UI
             tabs.TabPages.Add(BuildUniqueTab());
             tabs.TabPages.Add(BuildClassTab());
 
-            int buttonHeight = Math.Max(36, Font.Height + 16);
-            var ok = new Button { Text = "确定", Size = new Size(90, buttonHeight) };
-            ok.Click += (s, e) => { backup = ApplyToLayer().Clone(); DialogResult = DialogResult.OK; };
-            var cancel = new Button { Text = "取消", Size = new Size(90, buttonHeight) };
-            cancel.Click += (s, e) => { ResetFromLayer(); DialogResult = DialogResult.Cancel; };
-            var restore = new Button { Text = "还原", Size = new Size(90, buttonHeight) };
-            restore.Click += (s, e) => ResetFromLayer();
-            var apply = new Button { Text = "应用", Size = new Size(90, buttonHeight) };
-            apply.Click += (s, e) => { ApplyToLayer(); RendererApplied?.Invoke(); };
+            int buttonHeight = ActionButtonHeight;
+            var ok = CreateActionButton("确定", () => { backup = ApplyToLayer().Clone(); DialogResult = DialogResult.OK; }, 90);
+            var cancel = CreateActionButton("取消", () => { ResetFromLayer(); DialogResult = DialogResult.Cancel; }, 90);
+            var restore = CreateActionButton("还原", ResetFromLayer, 90);
+            var apply = CreateActionButton("应用", () => { ApplyToLayer(); RendererApplied?.Invoke(); }, 90);
             int fileButtonWidth = Math.Max(144, TextRenderer.MeasureText("保存渲染符号", Font).Width + 24);
-            var saveFile = new Button { Text = "保存渲染符号", Size = new Size(fileButtonWidth, buttonHeight) };
-            saveFile.Click += (s, e) => SaveRendererFile();
-            var loadFile = new Button { Text = "读取渲染符号", Size = new Size(fileButtonWidth, buttonHeight) };
-            loadFile.Click += (s, e) => LoadRendererFile();
+            var saveFile = CreateActionButton("保存渲染符号", SaveRendererFile, fileButtonWidth);
+            var loadFile = CreateActionButton("读取渲染符号", LoadRendererFile, fileButtonWidth);
             var footer = new Panel { Dock = DockStyle.Bottom, Height = buttonHeight + 12 };
             var actions = new FlowLayoutPanel
             {
@@ -104,6 +99,36 @@ namespace GIS.Display.UI
             else tabs.SelectedIndex = 0;
 
             PopulateFields();
+        }
+
+        private Button CreateActionButton(string text, Action click, int minimumWidth = 0)
+        {
+            int width = Math.Max(minimumWidth, TextRenderer.MeasureText(text, Font).Width + 24);
+            var button = new Button
+            {
+                Text = text,
+                Size = new Size(width, ActionButtonHeight),
+                Margin = new Padding(3)
+            };
+            button.Click += (s, e) => click();
+            return button;
+        }
+
+        private Label CreateToolbarLabel(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                Margin = new Padding(3, 3 + Math.Max(0, (ActionButtonHeight - Font.Height) / 2), 4, 3)
+            };
+        }
+
+        private void AlignToolbarControl(Control control)
+        {
+            control.Font = Font;
+            control.Margin = new Padding(3, 3 +
+                Math.Max(0, (ActionButtonHeight - control.PreferredSize.Height) / 2), 3, 3);
         }
 
         #region 渲染符号文件（保存 / 读取）
@@ -269,12 +294,20 @@ namespace GIS.Display.UI
         private TabPage BuildUniqueTab()
         {
             var page = new TabPage("唯一值渲染");
-            var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
-            top.Controls.Add(new Label { Text = "字段", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            var top = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true, Padding = new Padding(4), MinimumSize = new Size(0, ActionButtonHeight + 8)
+            };
+            top.Controls.Add(CreateToolbarLabel("字段"));
+            AlignToolbarControl(uniqueField);
             top.Controls.Add(uniqueField);
-            var load = new Button { Text = "加载所有值" }; load.Click += (s, e) => LoadUniqueValues();
-            var add = new Button { Text = "添加值" }; add.Click += (s, e) => AddUniqueValue();
-            var remove = new Button { Text = "删除末项" }; remove.Click += (s, e) => { if (unique.ValueCount > 0) { unique.RemoveValueAt(unique.ValueCount - 1); ShowUnique(); } };
+            var load = CreateActionButton("加载所有值", LoadUniqueValues);
+            var add = CreateActionButton("添加值", AddUniqueValue);
+            var remove = CreateActionButton("删除末项", () =>
+            {
+                if (unique.ValueCount > 0) { unique.RemoveValueAt(unique.ValueCount - 1); ShowUnique(); }
+            });
             top.Controls.Add(load); top.Controls.Add(add); top.Controls.Add(remove);
 
             var defRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(4) };
@@ -292,23 +325,30 @@ namespace GIS.Display.UI
         private TabPage BuildClassTab()
         {
             var page = new TabPage("分级渲染");
-            var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4) };
-            top.Controls.Add(new Label { Text = "字段", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            var top = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true, Padding = new Padding(4), MinimumSize = new Size(0, ActionButtonHeight + 8)
+            };
+            top.Controls.Add(CreateToolbarLabel("字段"));
+            AlignToolbarControl(classField);
             top.Controls.Add(classField);
-            top.Controls.Add(new Label { Text = "方法", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            top.Controls.Add(CreateToolbarLabel("方法"));
             classMethod.Items.AddRange(new object[] { "等间距", "分位数", "自然间断点", "几何间隔" });
             classMethod.SelectedIndex = 0;
+            AlignToolbarControl(classMethod);
             top.Controls.Add(classMethod);
-            top.Controls.Add(new Label { Text = "分级数", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            top.Controls.Add(CreateToolbarLabel("分级数"));
             for (int i = 2; i <= 8; i++) classCount.Items.Add(i);
             if (classBreaks.BreakCount >= 2 && classBreaks.BreakCount <= 8)
                 classCount.SelectedItem = classBreaks.BreakCount;   // 读取当前分级数
             else
                 classCount.SelectedIndex = 3;   // 默认 5 级
+            AlignToolbarControl(classCount);
             top.Controls.Add(classCount);
-            var gen = new Button { Text = "生成" }; gen.Click += (s, e) => GenerateClassBreaks();
-            var rampC = new Button { Text = "颜色渐变" }; rampC.Click += (s, e) => RampClassColor();
-            var rampS = new Button { Text = "尺寸渐变" }; rampS.Click += (s, e) => RampClassSize();
+            var gen = CreateActionButton("生成", GenerateClassBreaks);
+            var rampC = CreateActionButton("颜色渐变", RampClassColor);
+            var rampS = CreateActionButton("尺寸渐变", RampClassSize);
             top.Controls.Add(gen); top.Controls.Add(rampC); top.Controls.Add(rampS);
 
             // 右上角：色带下拉框（每一项用该色带自身的颜色渲染），最下方为“自定义色带…”
