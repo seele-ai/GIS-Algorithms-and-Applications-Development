@@ -52,7 +52,8 @@ namespace GIS.Display.UI
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(640, 560);
+            Font = new Font("Microsoft YaHei UI", 10F);
+            ClientSize = new Size(800, 600);
 
             backup = layer.Renderer == null ? null : layer.Renderer.Clone();
             ResetFromLayer();
@@ -61,25 +62,41 @@ namespace GIS.Display.UI
             tabs.TabPages.Add(BuildUniqueTab());
             tabs.TabPages.Add(BuildClassTab());
 
-            var ok = new Button { Text = "确定", Width = 84 };
+            int buttonHeight = Math.Max(36, Font.Height + 16);
+            var ok = new Button { Text = "确定", Size = new Size(90, buttonHeight) };
             ok.Click += (s, e) => { backup = ApplyToLayer().Clone(); DialogResult = DialogResult.OK; };
-            var cancel = new Button { Text = "取消", Width = 84 };
+            var cancel = new Button { Text = "取消", Size = new Size(90, buttonHeight) };
             cancel.Click += (s, e) => { ResetFromLayer(); DialogResult = DialogResult.Cancel; };
-            var restore = new Button { Text = "还原", Width = 84 };
+            var restore = new Button { Text = "还原", Size = new Size(90, buttonHeight) };
             restore.Click += (s, e) => ResetFromLayer();
-            var apply = new Button { Text = "应用", Width = 84 };
+            var apply = new Button { Text = "应用", Size = new Size(90, buttonHeight) };
             apply.Click += (s, e) => { ApplyToLayer(); RendererApplied?.Invoke(); };
-            var btns = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = 40, Padding = new Padding(0, 6, 8, 0) };
-            btns.Controls.Add(cancel); btns.Controls.Add(restore); btns.Controls.Add(apply); btns.Controls.Add(ok);
-            var saveFile = new Button { Text = "保存渲染符号", AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
+            int fileButtonWidth = Math.Max(144, TextRenderer.MeasureText("保存渲染符号", Font).Width + 24);
+            var saveFile = new Button { Text = "保存渲染符号", Size = new Size(fileButtonWidth, buttonHeight) };
             saveFile.Click += (s, e) => SaveRendererFile();
-            var loadFile = new Button { Text = "读取渲染符号", AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
+            var loadFile = new Button { Text = "读取渲染符号", Size = new Size(fileButtonWidth, buttonHeight) };
             loadFile.Click += (s, e) => LoadRendererFile();
-            btns.Controls.Add(loadFile);
-            btns.Controls.Add(saveFile);
+            var footer = new Panel { Dock = DockStyle.Bottom, Height = buttonHeight + 12 };
+            var actions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right, Width = 4 * (90 + 6) + 8,
+                FlowDirection = FlowDirection.RightToLeft, WrapContents = false,
+                Padding = new Padding(0, 3, 8, 0)
+            };
+            actions.Controls.Add(cancel); actions.Controls.Add(restore);
+            actions.Controls.Add(apply); actions.Controls.Add(ok);
+            var files = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left, Width = 2 * (fileButtonWidth + 6) + 8,
+                FlowDirection = FlowDirection.LeftToRight, WrapContents = false,
+                Padding = new Padding(8, 3, 0, 0)
+            };
+            files.Controls.Add(loadFile); files.Controls.Add(saveFile);
+            footer.Controls.Add(actions);
+            footer.Controls.Add(files);
 
             Controls.Add(tabs);
-            Controls.Add(btns);
+            Controls.Add(footer);
             AcceptButton = ok; CancelButton = cancel;
 
             if (layer.Renderer is UniqueValueRenderer) tabs.SelectedIndex = 1;

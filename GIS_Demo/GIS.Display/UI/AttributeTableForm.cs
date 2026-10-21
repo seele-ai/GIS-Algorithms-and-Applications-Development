@@ -29,7 +29,7 @@ namespace GIS.Display.UI
         {
             this.layer = layer; this.map = map;
             Text = "属性表：" + layer.Name;
-            Font = new Font("Microsoft YaHei UI", 9F);
+            Font = new Font("Microsoft YaHei UI", 10F);
             ClientSize = new Size(960, 540); MinimumSize = new Size(540, 320);
             FormBorderStyle = FormBorderStyle.Sizable; MaximizeBox = true;
             StartPosition = FormStartPosition.CenterParent;

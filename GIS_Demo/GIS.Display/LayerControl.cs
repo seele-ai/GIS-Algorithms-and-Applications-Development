@@ -48,7 +48,7 @@ namespace GIS.Display
         public LayerControl(Layer layer)
         {
             Layer = layer;
-            Font = new Font("Microsoft YaHei UI", 9F);
+            Font = new Font("Microsoft YaHei UI", 10F);
             Width = 224;
 
             check.Location = new ScreenPoint(6, 8);
@@ -474,8 +474,8 @@ namespace GIS.Display
         {
             var title = new Label
             {
-                Text = "图层", Dock = DockStyle.Top, Height = 30, TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0), Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold)
+                Text = "图层", Dock = DockStyle.Top, Height = 36, TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(8, 0, 0, 0), Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Bold)
             };
             Controls.Add(rowsPanel);
             Controls.Add(title);

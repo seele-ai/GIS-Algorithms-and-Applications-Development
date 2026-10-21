@@ -55,7 +55,7 @@ namespace GIS.Display.Demo
         public MainForm()
         {
             Text = "简易 GIS 系统";
-            Font = new Font("Microsoft YaHei UI", 9F);
+            Font = new Font("Microsoft YaHei UI", 10F);
             var available = Screen.PrimaryScreen.WorkingArea;
             ClientSize = new Size(Math.Min(2000, available.Width - 80),
                 Math.Min(1100, available.Height - 100));
