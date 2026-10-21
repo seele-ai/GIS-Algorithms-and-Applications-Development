@@ -21,6 +21,7 @@ namespace GIS.Display.Demo
         {
             if (attributeTables.TryGetValue(layer, out var existing) && !existing.IsDisposed)
             {
+                workspaceSplit.Panel2Collapsed = false;
                 bottomTabs.SelectedTab = (TabPage)existing.Parent;
                 return;
             }
@@ -41,11 +42,12 @@ namespace GIS.Display.Demo
                 attributeTables.Remove(layer);
                 bottomTabs.TabPages.Remove(page);
                 page.Dispose();
-                if (attributeTables.Count == 0) SetBottomHeight(130);
+                if (attributeTables.Count == 0) workspaceSplit.Panel2Collapsed = true;
             };
             page.Controls.Add(table);
             bottomTabs.TabPages.Add(page);
             bottomTabs.SelectedTab = page;
+            workspaceSplit.Panel2Collapsed = false;
             table.Show();
             SetBottomHeight(300);
         }
@@ -93,10 +95,9 @@ namespace GIS.Display.Demo
 
             Rectangle textBounds = e.Bounds;
             textBounds.X += 9;
-            textBounds.Width -= page == selectionTab ? 16 : 35;
+            textBounds.Width -= 35;
             TextRenderer.DrawText(e.Graphics, page.Text, bottomTabs.Font, textBounds,
                 SystemColors.ControlText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-            if (page == selectionTab) return;
 
             Rectangle close = AttributeTabCloseBounds(e.Index);
             using (var pen = new Pen(SystemColors.ControlText, 1.5f))
@@ -109,7 +110,7 @@ namespace GIS.Display.Demo
         private void BottomTabsMouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left) return;
-            for (int i = 1; i < bottomTabs.TabPages.Count; i++)
+            for (int i = 0; i < bottomTabs.TabPages.Count; i++)
             {
                 if (!AttributeTabCloseBounds(i).Contains(e.Location)) continue;
                 CloseAttributeTable(bottomTabs.TabPages[i]);
@@ -119,7 +120,7 @@ namespace GIS.Display.Demo
 
         private void BottomTabsMouseMove(object sender, MouseEventArgs e)
         {
-            bottomTabs.Cursor = Enumerable.Range(1, bottomTabs.TabPages.Count - 1)
+            bottomTabs.Cursor = Enumerable.Range(0, bottomTabs.TabPages.Count)
                 .Any(i => AttributeTabCloseBounds(i).Contains(e.Location)) ? Cursors.Hand : Cursors.Default;
         }
 

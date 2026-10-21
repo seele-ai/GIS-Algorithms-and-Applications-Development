@@ -10,6 +10,7 @@ namespace GIS.Display.UI
     {
         private readonly Layer layer;
         private readonly MapControl map;
+        private bool showSelectedOnly;
         private readonly Label hint = new Label { Dock = DockStyle.Bottom, Height = 32, TextAlign = ContentAlignment.MiddleLeft };
         private readonly DataGridView grid = new DataGridView
         {
@@ -43,9 +44,11 @@ namespace GIS.Display.UI
             if (grid.Columns.Count == 0) grid.Columns.Add("feature", "要素");
             var tools = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Dock = DockStyle.Top };
             var fit = new ToolStripButton("适应列宽"); fit.Click += (s,e) => FitColumns();
+            var selectedOnly = new ToolStripButton("仅显示选中") { CheckOnClick = true };
+            selectedOnly.CheckedChanged += (s,e) => { showSelectedOnly = selectedOnly.Checked; ReloadRows(); };
             var save = new ToolStripButton("保存编辑") { ToolTipText = "确认当前页面修改并清空撤销记录，不写入文件" };
             save.Click += (s,e) => SaveEditsRequested?.Invoke();
-            tools.Items.Add(fit); tools.Items.Add(save);
+            tools.Items.Add(fit); tools.Items.Add(selectedOnly); tools.Items.Add(save);
             tools.Items.Add(new ToolStripLabel("单击选择要素，双击行修改属性；黄色表示地图已选中"));
             grid.CellClick += (s,e) => { if (e.RowIndex >= 0) FeatureSelected?.Invoke((Feature)grid.Rows[e.RowIndex].Tag); };
             grid.CellDoubleClick += (s,e) => {
@@ -65,8 +68,11 @@ namespace GIS.Display.UI
             int first = grid.FirstDisplayedScrollingRowIndex;
             int horizontal = grid.HorizontalScrollingOffset;
             grid.Rows.Clear();
+            var selected = showSelectedOnly && map != null && map.Layers.Contains(layer)
+                ? map.GetSelection(layer).ToArray() : null;
             foreach (Feature feature in layer.FeatureClass.Features)
             {
+                if (showSelectedOnly && (selected == null || !selected.Contains(feature))) continue;
                 var values = new object[grid.Columns.Count];
                 for (int i = 0; i < layer.FeatureClass.Fields.Count; i++)
                     values[i] = feature.Attributes?.GetItem(i);
@@ -87,7 +93,10 @@ namespace GIS.Display.UI
             foreach (DataGridViewColumn column in grid.Columns)
                 column.Width = Math.Max(90, Math.Max(Math.Min(column.Width, 300), available));
         }
-        private void MapSelectionChanged(object sender, EventArgs e) { HighlightSelection(); }
+        private void MapSelectionChanged(object sender, EventArgs e)
+        {
+            if (showSelectedOnly) ReloadRows(); else HighlightSelection();
+        }
         private void MapLayersChanged(object sender, EventArgs e) { if (!map.Layers.Contains(layer)) Close(); }
         private void HighlightSelection()
         {
@@ -100,7 +109,8 @@ namespace GIS.Display.UI
                 row.DefaultCellStyle.SelectionBackColor = highlighted ? Color.FromArgb(255, 235, 156) : SystemColors.Highlight;
                 row.DefaultCellStyle.SelectionForeColor = highlighted ? Color.Black : SystemColors.HighlightText;
             }
-            hint.Text = "  共 " + grid.Rows.Count + " 个要素，选中 " + selected.Length + " 个。保存修改后可撤销，保存编辑后确认。";
+            hint.Text = "  共 " + layer.FeatureClass.Features.Count + " 个要素，当前显示 " + grid.Rows.Count +
+                " 个，选中 " + selected.Length + " 个。保存修改后可撤销，保存编辑后确认。";
         }
         protected override void Dispose(bool disposing)
         {

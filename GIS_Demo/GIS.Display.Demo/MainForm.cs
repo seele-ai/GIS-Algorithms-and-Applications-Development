@@ -23,8 +23,6 @@ namespace GIS.Display.Demo
         private readonly ToolStripStatusLabel scale = new ToolStripStatusLabel();
         private readonly ToolStripStatusLabel selected = new ToolStripStatusLabel();
         private readonly ToolStripStatusLabel position = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleRight };
-        private readonly ListView selectionList = new ListView { Dock = DockStyle.Fill,
-            View = View.Details, FullRowSelect = true, GridLines = true };
         private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
         private readonly Dictionary<Layer, PostGISReadOnlyLayerContext> postgisLayers = new Dictionary<Layer, PostGISReadOnlyLayerContext>();
         private PostGISDataSourceForm postGISDataSourcePanel;
@@ -32,7 +30,6 @@ namespace GIS.Display.Demo
         private SplitContainer mainContent;
         private SplitContainer workspaceSplit;
         private TabControl bottomTabs;
-        private TabPage selectionTab;
         private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
         private bool mainContentSplitterInitialized;
 
@@ -127,13 +124,8 @@ namespace GIS.Display.Demo
             bottomTabs.DrawItem += DrawBottomTab;
             bottomTabs.MouseDown += BottomTabsMouseDown;
             bottomTabs.MouseMove += BottomTabsMouseMove;
-            selectionTab = new TabPage("选择结果");
-            selectionList.Columns.Add("图层", 230);
-            selectionList.Columns.Add("名称", 280);
-            selectionList.Columns.Add("几何类型", 180);
-            selectionTab.Controls.Add(selectionList);
-            bottomTabs.TabPages.Add(selectionTab);
             workspaceSplit.Panel2.Controls.Add(bottomTabs);
+            workspaceSplit.Panel2Collapsed = true;
             var status = new StatusStrip();
             status.Items.Add(scale);
             status.Items.Add(selected);
@@ -153,7 +145,7 @@ namespace GIS.Display.Demo
             Map.LayersChanged += (s, e) => { PrunePostGISLayers(); UpdateStatus(); RefreshEditingLayers(); };
             RefreshEditingLayers();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
-            Shown += (s, e) => { ConfigureMainContentSplitter(); SetBottomHeight(130); UpdateStatus(); };
+            Shown += (s, e) => { ConfigureMainContentSplitter(); UpdateStatus(); };
             mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
             FormClosed += (s, e) => postGISLoadCancellation?.Cancel();
         }
@@ -592,13 +584,6 @@ namespace GIS.Display.Demo
 
         private void UpdateSelection()
         {
-            selectionList.BeginUpdate();
-            selectionList.Items.Clear();
-            foreach (Layer layer in Map.Layers)
-                foreach (Feature feature in Map.GetSelection(layer))
-                    selectionList.Items.Add(new ListViewItem(new[] { layer.Name,
-                        Convert.ToString(feature.Attributes?.GetItem("名称")), feature.Geometry.GeometryType.ToString() }));
-            selectionList.EndUpdate();
             UpdateStatus();
         }
     }
