@@ -15,7 +15,13 @@ namespace GIS.Display
     public sealed class LayerControl : UserControl
     {
         private readonly CheckBox check = new CheckBox { AutoSize = true };
-        private readonly Label nameLabel = new Label { AutoSize = true };
+        private readonly Label nameLabel = new Label
+        {
+            AutoSize = false,
+            AutoEllipsis = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            UseMnemonic = false
+        };
         private readonly ContextMenuStrip menu = new ContextMenuStrip();
         private static readonly ToolTip LegendHint = new ToolTip();   // 绑定属性错误符号的提示
         private readonly ToolStripMenuItem mniLabelToggle = new ToolStripMenuItem();
@@ -25,6 +31,7 @@ namespace GIS.Display
         private bool selectable = true;
         private ScreenPoint dragStart;
         private bool dragPending;
+        private int HeaderHeight => Math.Max(36, Font.Height + 14);
 
         public Layer Layer { get; }
 
@@ -50,11 +57,10 @@ namespace GIS.Display
             Layer = layer;
             Font = new Font("Microsoft YaHei UI", 10F);
             Width = 224;
+            Margin = new Padding(0);
 
-            check.Location = new ScreenPoint(6, 8);
             check.CheckedChanged += (s, e) => { if (!updating) VisibilityChanged?.Invoke(this, check.Checked); };
 
-            nameLabel.Location = new ScreenPoint(28, 8);
             nameLabel.DoubleClick += (s, e) => BeginRename();
             nameLabel.MouseDown += BeginLayerDrag;
             nameLabel.MouseMove += ContinueLayerDrag;
@@ -71,6 +77,29 @@ namespace GIS.Display
             ContextMenuStrip = menu;
             menu.Opening += (s, e) => RefreshMenuTexts();
             RefreshView();
+            LayoutHeader();
+        }
+
+        private void LayoutHeader()
+        {
+            int headerHeight = HeaderHeight;
+            check.Location = new ScreenPoint(6, Math.Max(0, (headerHeight - check.Height) / 2));
+            int nameLeft = Math.Max(30, check.Right + 5);
+            int nameHeight = Font.Height + 4;
+            nameLabel.SetBounds(nameLeft, Math.Max(0, (headerHeight - nameHeight) / 2),
+                Math.Max(20, ClientSize.Width - nameLeft - 8), nameHeight);
+            if (symbolArea != null)
+            {
+                symbolArea.SetBounds(0, headerHeight, ClientSize.Width, symbolArea.Height);
+                LayoutLegendWidth();
+                Height = headerHeight + symbolArea.Height + 2;
+            }
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            LayoutHeader();
         }
 
         private void BeginLayerDrag(object sender, MouseEventArgs e)
@@ -143,7 +172,9 @@ namespace GIS.Display
 
         private void BeginRename()
         {
-            var box = new TextBox { Bounds = nameLabel.Bounds, Text = Layer.Name };
+            var box = new TextBox { Text = Layer.Name, Width = nameLabel.Width };
+            box.Location = new ScreenPoint(nameLabel.Left,
+                Math.Max(0, (HeaderHeight - box.PreferredHeight) / 2));
             box.KeyDown += (s, e) => {
                 if (e.KeyCode == Keys.Enter) CommitRename(box);
                 else if (e.KeyCode == Keys.Escape) Controls.Remove(box);
@@ -178,22 +209,19 @@ namespace GIS.Display
 
         public void RefreshView()
         {
-            nameLabel.Text = Truncate(Layer.Name, 15);
+            string displayName = Layer.Name;
             // 渲染符号文件导入后若绑定字段不存在，图层名用红色显示
             bool bindingError = Layer.Renderer != null && Layer.Renderer.HasBindingError;
             nameLabel.ForeColor = bindingError ? Color.Red : SystemColors.ControlText;
             // 非 WGS84 的数据用橙色标出，提示需要先“投影到 WGS84”
             if (!bindingError && !Layer.IsWgs84)
             {
-                nameLabel.Text = Truncate(Layer.Name, 9) + "[" + Layer.GeographicDatum.ShortName + "]";
+                displayName += " [" + Layer.GeographicDatum.ShortName + "]";
                 nameLabel.ForeColor = Color.FromArgb(200, 110, 0);
             }
+            nameLabel.Text = displayName;
+            LegendHint.SetToolTip(nameLabel, displayName);
             RebuildSymbolArea();
-        }
-
-        private static string Truncate(string s, int max)
-        {
-            return s != null && s.Length > max ? s.Substring(0, max - 1) + "…" : s;
         }
 
         #region 符号区（单一符号 或 符号+属性表格）
@@ -201,7 +229,7 @@ namespace GIS.Display
         private void RebuildSymbolArea()
         {
             if (symbolArea != null) { Controls.Remove(symbolArea); symbolArea.Dispose(); }
-            symbolArea = new ScrollPanel { Location = new ScreenPoint(0, 30), Width = 224 };
+            symbolArea = new ScrollPanel { Location = new ScreenPoint(0, HeaderHeight), Width = ClientSize.Width };
             Renderer r = Layer.Renderer;
             bool bindingError = r != null && r.HasBindingError;
 
@@ -216,7 +244,34 @@ namespace GIS.Display
 
             Controls.Add(symbolArea);
             symbolArea.BringToFront();
-            Height = 30 + symbolArea.Height + 2;
+            LayoutLegendWidth();
+            Height = HeaderHeight + symbolArea.Height + 2;
+        }
+
+        private void LayoutLegendWidth()
+        {
+            if (symbolArea == null) return;
+            // ClientSize 已经扣除了可见滚动条占用的宽度，直接使用可避免重复缩窄内容。
+            int contentWidth = Math.Max(120, symbolArea.ClientSize.Width);
+            foreach (FlowLayoutPanel list in symbolArea.Controls.OfType<FlowLayoutPanel>())
+            {
+                list.Width = contentWidth;
+                foreach (Control child in list.Controls)
+                {
+                    if (child is Label header)
+                    {
+                        header.Width = contentWidth;
+                    }
+                    else if (child is FlowLayoutPanel row)
+                    {
+                        row.Width = contentWidth;
+                        Panel preview = row.Controls.OfType<Panel>().FirstOrDefault();
+                        Label label = row.Controls.OfType<Label>().FirstOrDefault();
+                        if (preview != null && label != null)
+                            label.Width = Math.Max(40, contentWidth - preview.Width - preview.Margin.Horizontal);
+                    }
+                }
+            }
         }
 
         // 简单渲染：左下角放置一个单一符号，点击进入渲染设置
@@ -263,10 +318,11 @@ namespace GIS.Display
             int fullHeight = headerHeight + rowCount * rowH + 20;   // 底部留余量，保证最后一行可完整滚到
             int maxHeight = headerHeight + 4 * rowH;                 // 高度阈值：最多显示 4 个符号行
             bool canEdit = CanEditSymbolDirectly(renderer);
+            int contentWidth = Math.Max(120, symbolArea.ClientSize.Width);
             var list = new FlowLayoutPanel
             {
                 Location = new ScreenPoint(0, 0),
-                Size = new Size(205, fullHeight),
+                Size = new Size(contentWidth, fullHeight),
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 Margin = new Padding(0)
@@ -277,7 +333,7 @@ namespace GIS.Display
                 {
                     Text = title,
                     AutoSize = false,
-                    Size = new Size(205, headerHeight),
+                    Size = new Size(contentWidth, headerHeight),
                     Margin = new Padding(0),
                     Font = new Font(Font, FontStyle.Bold),
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -290,7 +346,7 @@ namespace GIS.Display
                 bool isExtra = i >= count;   // 末行：唯一值渲染的“（其他值）”默认符号行
                 var row = new FlowLayoutPanel
                 {
-                    Size = new Size(205, rowH),
+                    Size = new Size(contentWidth, rowH),
                     Margin = new Padding(0),
                     FlowDirection = FlowDirection.LeftToRight,
                     WrapContents = false
@@ -323,7 +379,7 @@ namespace GIS.Display
                 var lbl = new Label {
                     Text = isExtra ? extraLabel : getLabel(index),
                     AutoSize = false, AutoEllipsis = true,
-                    Size = new Size(133, rowH), Margin = new Padding(0),
+                    Size = new Size(Math.Max(40, contentWidth - 72), rowH), Margin = new Padding(0),
                     TextAlign = ContentAlignment.MiddleLeft
                 };
                 if (bindingError && !isExtra)
@@ -462,7 +518,8 @@ namespace GIS.Display
     {
         private readonly FlowLayoutPanel rowsPanel = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true
+            Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+            AutoScroll = true, Margin = new Padding(0), Padding = new Padding(0)
         };
         private readonly List<LayerControl> rows = new List<LayerControl>();
         private MapControl map;
@@ -481,6 +538,7 @@ namespace GIS.Display
             Controls.Add(title);
             RegisterDropTarget(rowsPanel);
             rowsPanel.Paint += DrawDropPosition;
+            rowsPanel.ClientSizeChanged += (s, e) => ResizeLayerRows();
         }
 
         public void Bind(MapControl control)
@@ -524,6 +582,14 @@ namespace GIS.Display
                 rows.Add(lc);
                 RegisterDropTarget(lc);
             }
+            ResizeLayerRows();
+        }
+
+        private void ResizeLayerRows()
+        {
+            // ClientSize 会随竖向滚动条自动收窄，图层行始终填满剩余区域。
+            int width = Math.Max(160, rowsPanel.ClientSize.Width);
+            foreach (LayerControl row in rows) row.Width = width;
         }
 
         private void RegisterDropTarget(Control control)
