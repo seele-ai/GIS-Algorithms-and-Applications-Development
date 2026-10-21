@@ -30,6 +30,11 @@ namespace GIS.Display.Demo
         private PostGISDataSourceForm postGISDataSourcePanel;
         private CancellationTokenSource postGISLoadCancellation;
         private SplitContainer mainContent;
+        private SplitContainer workspaceSplit;
+        private TabControl bottomTabs;
+        private TabPage selectionTab;
+        private Button closeAttributeTabButton;
+        private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
         private bool mainContentSplitterInitialized;
 
         private readonly ToolStrip editToolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
@@ -115,19 +120,31 @@ namespace GIS.Display.Demo
             // 必须显式打开，否则右侧会只有空白面板。
             postGISDataSourcePanel.Visible = true;
             mainContent.Panel2Collapsed = true;
-            var lower = new Panel { Dock = DockStyle.Bottom, Height = 130 };
-            var label = new Label { Text = "选择结果", Dock = DockStyle.Top, Height = 25 };
+            workspaceSplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
+                FixedPanel = FixedPanel.Panel2, Panel1MinSize = 240, Panel2MinSize = 100 };
+            workspaceSplit.Panel1.Controls.Add(mainContent);
+            var bottomHeader = new Panel { Dock = DockStyle.Top, Height = 30 };
+            bottomHeader.Controls.Add(new Label { Text = "数据表", Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) });
+            closeAttributeTabButton = new Button { Text = "关闭当前属性表", Dock = DockStyle.Right, Width = 120, Enabled = false };
+            closeAttributeTabButton.Click += (s, e) => CloseSelectedAttributeTable();
+            bottomHeader.Controls.Add(closeAttributeTabButton);
+            bottomTabs = new TabControl { Dock = DockStyle.Fill };
+            selectionTab = new TabPage("选择结果");
             selectionList.Columns.Add("图层", 230);
             selectionList.Columns.Add("名称", 280);
             selectionList.Columns.Add("几何类型", 180);
-            lower.Controls.Add(selectionList);
-            lower.Controls.Add(label);
+            selectionTab.Controls.Add(selectionList);
+            bottomTabs.TabPages.Add(selectionTab);
+            bottomTabs.SelectedIndexChanged += (s, e) =>
+                closeAttributeTabButton.Enabled = bottomTabs.SelectedTab != selectionTab;
+            workspaceSplit.Panel2.Controls.Add(bottomTabs);
+            workspaceSplit.Panel2.Controls.Add(bottomHeader);
             var status = new StatusStrip();
             status.Items.Add(scale);
             status.Items.Add(selected);
             status.Items.Add(position);
-            Controls.Add(mainContent);
-            Controls.Add(lower);
+            Controls.Add(workspaceSplit);
             Controls.Add(hint);
             BuildEditingToolbar();
             Controls.Add(sketchHint);
@@ -136,12 +153,13 @@ namespace GIS.Display.Demo
             Controls.Add(heading);
             Controls.Add(status);
             layerManager.Bind(Map);
+            layerManager.AttributeTableRequested += OpenAttributeTable;
             Map.ViewChanged += (s, e) => UpdateStatus();
             Map.SelectionChanged += (s, e) => UpdateSelection();
             Map.LayersChanged += (s, e) => { PrunePostGISLayers(); UpdateStatus(); RefreshEditingLayers(); };
             RefreshEditingLayers();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
-            Shown += (s, e) => { ConfigureMainContentSplitter(); UpdateStatus(); };
+            Shown += (s, e) => { ConfigureMainContentSplitter(); SetBottomHeight(130); UpdateStatus(); };
             mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
             FormClosed += (s, e) => postGISLoadCancellation?.Cancel();
         }
@@ -212,7 +230,7 @@ namespace GIS.Display.Demo
                 foreach (ToolStripButton button in toolbar.Items.OfType<ToolStripButton>())
                     if (button.Tag is MapInteractionMode) button.Checked = !Map.IsCreating && Equals(button.Tag, Map.InteractionMode);
             };
-            Map.FeatureCreated += (layer, feature) => { MarkEdited(layer); layerManager.RefreshAttributeTables(); layerManager.Rebuild(); UpdateSelection(); };
+            Map.FeatureCreated += (layer, feature) => { MarkEdited(layer); RefreshAttributeTables(); layerManager.Rebuild(); UpdateSelection(); };
         }
         private void AddEditAction(string text, Action action)
         {

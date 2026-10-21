@@ -451,13 +451,7 @@ namespace GIS.Display
         };
         private readonly List<LayerControl> rows = new List<LayerControl>();
         private MapControl map;
-        private readonly List<GIS.Display.UI.AttributeTableForm> attributeTables = new List<GIS.Display.UI.AttributeTableForm>();
-        public event Action<Layer, Feature> AttributeEditRequested;
-        public event Action SaveEditsRequested;
-        public void RefreshAttributeTables()
-        {
-            foreach (var table in attributeTables.ToArray()) if (!table.IsDisposed) table.ReloadRows();
-        }
+        public event Action<Layer> AttributeTableRequested;
 
         public IReadOnlyList<LayerControl> LayerRows => rows;
         public LayerManagerControl()
@@ -508,7 +502,7 @@ namespace GIS.Display
                 lc.RenameRequested += c => map.Invalidate();
                 lc.ProjectToWgs84Requested += c => ProjectToWgs84(c);
                 lc.RendererViewChanged += c => map.RefreshMap();
-                lc.OpenAttributesRequested += c => OpenAttributes(c);
+                lc.OpenAttributesRequested += c => AttributeTableRequested?.Invoke(c.Layer);
                 rowsPanel.Controls.Add(lc);
                 rows.Add(lc);
             }
@@ -693,22 +687,6 @@ namespace GIS.Display
                 map.SetLayerSelectable(layer, layer == c.Layer);
         }
 
-        private void OpenAttributes(LayerControl c)
-        {
-            var form = new GIS.Display.UI.AttributeTableForm(c.Layer, map);
-            attributeTables.Add(form);
-            form.FormClosed += (sender, args) => attributeTables.Remove(form);
-            form.EditRequested += feature => AttributeEditRequested?.Invoke(c.Layer, feature);
-            form.SaveEditsRequested += () => SaveEditsRequested?.Invoke();
-            form.FeatureSelected += feature => {
-                var sel = new Features();
-                sel.Add(feature);
-                map.SetSelection(c.Layer, sel, SelectMethodConstant.CreateNew);
-                // 仅选中要素，不缩放地图，保持地图位置不变
-            };
-            form.Show(this);
-        }
-
         private static string FirstField(Layer layer)
         {
             return layer.FeatureClass.Fields.Count > 0 ? layer.FeatureClass.Fields[0].Name : "";
@@ -718,8 +696,6 @@ namespace GIS.Display
         {
             if (disposing)
             {
-                foreach (var table in attributeTables.ToArray()) table.Dispose();
-                attributeTables.Clear();
                 if (map != null) map.LayersChanged -= OnLayersChanged;
             }
             base.Dispose(disposing);
