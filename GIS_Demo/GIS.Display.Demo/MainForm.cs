@@ -56,7 +56,9 @@ namespace GIS.Display.Demo
         {
             Text = "简易 GIS 系统";
             Font = new Font("Microsoft YaHei UI", 9F);
-            ClientSize = new Size(1180, 760);
+            var available = Screen.PrimaryScreen.WorkingArea;
+            ClientSize = new Size(Math.Min(1360, available.Width - 80),
+                Math.Min(840, available.Height - 100));
             MinimumSize = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
             var heading = new Label { Text = "简易 GIS 系统", Dock = DockStyle.Top, Height = 55,
