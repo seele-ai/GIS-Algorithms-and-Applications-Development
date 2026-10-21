@@ -212,7 +212,7 @@ namespace GIS.Display.Demo
                 foreach (ToolStripButton button in toolbar.Items.OfType<ToolStripButton>())
                     if (button.Tag is MapInteractionMode) button.Checked = !Map.IsCreating && Equals(button.Tag, Map.InteractionMode);
             };
-            Map.FeatureCreated += (layer, feature) => { MarkEdited(layer); layerManager.Rebuild(); UpdateSelection(); };
+            Map.FeatureCreated += (layer, feature) => { MarkEdited(layer); layerManager.RefreshAttributeTables(); layerManager.Rebuild(); UpdateSelection(); };
         }
         private void AddEditAction(string text, Action action)
         {
