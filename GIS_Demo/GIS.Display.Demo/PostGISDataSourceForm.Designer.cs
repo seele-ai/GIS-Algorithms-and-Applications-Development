@@ -39,7 +39,7 @@ namespace GIS.Display.Demo
             //
             this.title.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(247)))), ((int)(((byte)(243)))), ((int)(((byte)(239)))));
             this.title.Dock = System.Windows.Forms.DockStyle.Top;
-            this.title.Font = new System.Drawing.Font("Microsoft YaHei UI", 10F, System.Drawing.FontStyle.Bold);
+            this.title.Font = new System.Drawing.Font("Microsoft YaHei UI", 11F, System.Drawing.FontStyle.Bold);
             this.title.Location = new System.Drawing.Point(0, 0);
             this.title.Name = "title";
             this.title.Padding = new System.Windows.Forms.Padding(8, 0, 0, 0);

@@ -446,7 +446,7 @@ namespace GIS.Display.UI
             AddButton(row1, "均匀分布节点", (s, e) => { working.DistributeEvenly(); Refresh1(); });
             AddButton(row1, "设置节点位置", (s, e) => SetPosition());
             AddButton(row1, "设置节点颜色", (s, e) => SetColor());
-            AddButton(row1, "设置与上一个节点间的插值方法", (s, e) => SetInterpolation());
+            AddButton(row1, "设置节点间插值", (s, e) => SetInterpolation());
 
             var row2 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 0, 0, 0), WrapContents = false };
             AddButton(row2, "保存为色带文件", (s, e) => SaveRamp());

@@ -329,7 +329,7 @@ namespace GIS.Display.UI
     public sealed class DashElementEditor : Form
     {
         /// <summary>窗口最小宽度：要容得下最长的标签 + 参数输入框（“设置线段”曾因新增参数而放不下）。</summary>
-        public const int EditorWidth = 660;
+        public const int EditorWidth = 880;
         /// <summary>参数输入框宽度（七参数之外的数值编辑框）。</summary>
         private const int ParameterBoxWidth = 200;
         private readonly LineDashElement element;
@@ -484,7 +484,7 @@ namespace GIS.Display.UI
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            MinimumSize = new Size(500, 0);
+            MinimumSize = new Size(560, 0);
             Padding = new Padding(12);
 
             offsetValue.Value = (decimal)offset.Offset;

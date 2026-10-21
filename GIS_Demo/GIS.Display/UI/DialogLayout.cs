@@ -13,6 +13,9 @@ namespace GIS.Display.UI
         public static void Apply(Control root)
         {
             if (root == null) return;
+            if ((root is Form || root is UserControl) &&
+                (root.Font.FontFamily.Name != "Microsoft YaHei UI" || Math.Abs(root.Font.SizeInPoints - 10F) > 0.01F))
+                root.Font = new Font("Microsoft YaHei UI", 10F, root.Font.Style);
             Normalize(root);
             root.PerformLayout();
         }
@@ -25,6 +28,7 @@ namespace GIS.Display.UI
             if (control is Button button)
             {
                 int height = Math.Max(34, button.Font.Height + 14);
+                if (button.Parent is FlowLayoutPanel) button.Margin = AtLeast(button.Margin, 4);
                 button.MinimumSize = new Size(button.MinimumSize.Width, height);
                 if (button.Height < height) button.Height = height;
             }
@@ -38,11 +42,19 @@ namespace GIS.Display.UI
             }
             else if (control is Label label && !label.AutoSize)
             {
+                UseSecondaryTextStyle(label);
                 int lines = Math.Max(1, (label.Text ?? "").Split('\n').Length);
                 int height = lines * label.Font.Height + label.Padding.Vertical + 2;
                 label.MinimumSize = new Size(label.MinimumSize.Width, height);
                 if (label.Dock != DockStyle.Fill && label.Height < height) label.Height = height;
             }
+            else if (control is Label autoLabel)
+            {
+                UseSecondaryTextStyle(autoLabel);
+            }
+
+            if (control.Parent is TableLayoutPanel)
+                control.Margin = AtLeast(control.Margin, 4);
 
             if (control is FlowLayoutPanel flow && !flow.AutoSize)
             {
@@ -74,6 +86,18 @@ namespace GIS.Display.UI
             int height = control.Font.Height + 6;
             control.MinimumSize = new Size(control.MinimumSize.Width, height);
             if (control.Height < height) control.Height = height;
+        }
+
+        private static Padding AtLeast(Padding value, int minimum)
+        {
+            return new Padding(Math.Max(minimum, value.Left), Math.Max(minimum, value.Top),
+                Math.Max(minimum, value.Right), Math.Max(minimum, value.Bottom));
+        }
+
+        private static void UseSecondaryTextStyle(Label label)
+        {
+            if (label.ForeColor != Color.FromArgb(90, 90, 90) || label.Font.SizeInPoints <= 9F) return;
+            label.Font = new Font("Microsoft YaHei UI", 9F, label.Font.Style);
         }
 
         private static void NormalizeAbsoluteRows(TableLayoutPanel table)

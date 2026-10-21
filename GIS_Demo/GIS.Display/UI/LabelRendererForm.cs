@@ -45,7 +45,7 @@ namespace GIS.Display.UI
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            MinimumSize = new Size(520, 0);
+            MinimumSize = new Size(560, 0);
             Padding = new Padding(12);
 
             foreach (Field f in layer.FeatureClass.Fields) field.Items.Add(f.Name);

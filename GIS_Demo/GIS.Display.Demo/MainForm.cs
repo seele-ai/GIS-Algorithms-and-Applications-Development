@@ -23,7 +23,7 @@ namespace GIS.Display.Demo
         private readonly ToolStripStatusLabel scale = new ToolStripStatusLabel();
         private readonly ToolStripStatusLabel selected = new ToolStripStatusLabel();
         private readonly ToolStripStatusLabel position = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleRight };
-        private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
+        private readonly ToolStrip toolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(6, 4, 6, 4) };
         private readonly Dictionary<Layer, PostGISReadOnlyLayerContext> postgisLayers = new Dictionary<Layer, PostGISReadOnlyLayerContext>();
         private PostGISDataSourceForm postGISDataSourcePanel;
         private CancellationTokenSource postGISLoadCancellation;
@@ -33,9 +33,9 @@ namespace GIS.Display.Demo
         private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
         private bool mainContentSplitterInitialized;
 
-        private readonly ToolStrip editToolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8) };
+        private readonly ToolStrip editToolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(6, 4, 6, 4) };
         private readonly ToolStripComboBox editLayer = new ToolStripComboBox { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 190 };
-        private readonly Label sketchHint = new Label { Dock = DockStyle.Top, Height = 28, Padding = new Padding(12, 0, 0, 0), TextAlign = ContentAlignment.MiddleLeft, Text = "", Visible = false };
+        private readonly Label sketchHint = new Label { Dock = DockStyle.Top, Height = 32, Padding = new Padding(12, 0, 0, 0), TextAlign = ContentAlignment.MiddleLeft, Text = "", Visible = false };
         private bool updatingEditLayers;
         private ToolStripButton createFeatureButton;
 
@@ -61,13 +61,10 @@ namespace GIS.Display.Demo
                 Math.Min(1100, available.Height - 100));
             MinimumSize = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
-            var heading = new Label { Text = "简易 GIS 系统", Dock = DockStyle.Top, Height = 55,
+            var heading = new Label { Text = "简易 GIS 系统", Dock = DockStyle.Top, Height = 42,
                 BackColor = Color.FromArgb(126, 36, 47), ForeColor = Color.White,
                 Font = new Font("Microsoft YaHei UI", 16, FontStyle.Bold),
                 Padding = new Padding(18, 0, 0, 0), TextAlign = ContentAlignment.MiddleLeft };
-            var hint = new Label { Text = "滚轮：以鼠标为中心缩放    中键：平移    选择工具：点选 / 拖框    Esc：取消本次拖动    顶部“投影”可切换显示坐标系；切换到高斯-克吕格 / UTM 后可点“选择分带”在地球上选取分带",
-                Dock = DockStyle.Top, Height = 32, Padding = new Padding(12, 0, 0, 0),
-                TextAlign = ContentAlignment.MiddleLeft, BackColor = Color.FromArgb(247, 243, 239) };
             AddMode("平移", MapInteractionMode.Pan);
             AddMode("放大", MapInteractionMode.ZoomIn);
             AddMode("缩小", MapInteractionMode.ZoomOut);
@@ -75,6 +72,7 @@ namespace GIS.Display.Demo
             toolbar.Items.Add(new ToolStripSeparator());
             AddMode("选择", MapInteractionMode.Select);
             AddAction("清空选择", () => Map.ClearSelection());
+            AddAction("操作帮助", ShowOperationHelp);
             toolbar.Items.Add(new ToolStripSeparator());
             AddAction("导入要素", ImportShapefiles);
             AddAction("导出要素", ExportShapefile);
@@ -104,7 +102,7 @@ namespace GIS.Display.Demo
             selectMethod.SelectedIndexChanged += (s, e) => Map.SelectionMethod = (SelectMethodConstant)selectMethod.SelectedIndex;
             toolbar.Items.Add(selectMethod);
             var mapContent = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1180, 560),
-                FixedPanel = FixedPanel.Panel1, SplitterDistance = 230, Panel1MinSize = 210, Panel2MinSize = 350 };
+                FixedPanel = FixedPanel.Panel1, SplitterDistance = 290, Panel1MinSize = 240, Panel2MinSize = 350 };
             mapContent.Panel1.Controls.Add(layerManager);
             mapContent.Panel2.Controls.Add(Map);
             mainContent = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
@@ -133,7 +131,6 @@ namespace GIS.Display.Demo
             status.Items.Add(selected);
             status.Items.Add(position);
             Controls.Add(workspaceSplit);
-            Controls.Add(hint);
             BuildEditingToolbar();
             Controls.Add(sketchHint);
             Controls.Add(toolbar);
@@ -150,6 +147,17 @@ namespace GIS.Display.Demo
             Shown += (s, e) => { ConfigureMainContentSplitter(); UpdateStatus(); };
             mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
             FormClosed += (s, e) => postGISLoadCancellation?.Cancel();
+        }
+
+        private void ShowOperationHelp()
+        {
+            MessageBox.Show(this,
+                "滚轮：以鼠标为中心缩放\r\n" +
+                "中键拖动：平移地图\r\n" +
+                "选择工具：点选或拖框选择\r\n" +
+                "Esc：取消本次拖动或草图操作\r\n" +
+                "高斯-克吕格 / UTM：切换投影后使用“选择分带”设置分带",
+                "地图操作帮助", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void ConfigureMainContentSplitter()

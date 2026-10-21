@@ -24,7 +24,7 @@ namespace GIS.Display.UI
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            MinimumSize = new Size(420, 0);
+            MinimumSize = new Size(480, 0);
             Padding = new Padding(12);
 
             styleBox.Items.AddRange(new object[] { "圆形", "方形", "三角形", "十字", "五角星", "实心点圆环", "空心点圆环" });
