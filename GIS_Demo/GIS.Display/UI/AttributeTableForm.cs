@@ -11,7 +11,6 @@ namespace GIS.Display.UI
         private readonly Layer layer;
         private readonly MapControl map;
         private bool showSelectedOnly;
-        private readonly Label hint = new Label { Dock = DockStyle.Bottom, Height = 32, TextAlign = ContentAlignment.MiddleLeft };
         private readonly DataGridView grid = new DataGridView
         {
             Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
@@ -49,7 +48,6 @@ namespace GIS.Display.UI
             var save = new ToolStripButton("保存编辑") { ToolTipText = "确认当前页面修改并清空撤销记录，不写入文件" };
             save.Click += (s,e) => SaveEditsRequested?.Invoke();
             tools.Items.Add(fit); tools.Items.Add(selectedOnly); tools.Items.Add(save);
-            tools.Items.Add(new ToolStripLabel("单击选择要素，双击行修改属性；黄色表示地图已选中"));
             grid.CellClick += (s,e) => { if (e.RowIndex >= 0) FeatureSelected?.Invoke((Feature)grid.Rows[e.RowIndex].Tag); };
             grid.CellDoubleClick += (s,e) => {
                 if (e.RowIndex < 0) return;
@@ -57,7 +55,7 @@ namespace GIS.Display.UI
                 FeatureSelected?.Invoke(feature); EditRequested?.Invoke(feature);
                 ReloadRows();
             };
-            Controls.Add(grid); Controls.Add(hint); Controls.Add(tools);
+            Controls.Add(grid); Controls.Add(tools);
             ReloadRows(); FitColumns();
             Activated += (s,e) => ReloadRows();
             if (map != null) { map.SelectionChanged += MapSelectionChanged; map.LayersChanged += MapLayersChanged; }
@@ -109,8 +107,6 @@ namespace GIS.Display.UI
                 row.DefaultCellStyle.SelectionBackColor = highlighted ? Color.FromArgb(255, 235, 156) : SystemColors.Highlight;
                 row.DefaultCellStyle.SelectionForeColor = highlighted ? Color.Black : SystemColors.HighlightText;
             }
-            hint.Text = "  共 " + layer.FeatureClass.Features.Count + " 个要素，当前显示 " + grid.Rows.Count +
-                " 个，选中 " + selected.Length + " 个。保存修改后可撤销，保存编辑后确认。";
         }
         protected override void Dispose(bool disposing)
         {
