@@ -223,6 +223,21 @@ namespace GIS.Display
             };
         }
 
+        /// <summary>为新图层使用指定的识别色；面填充保留浅色，边界使用原色。</summary>
+        public static Symbol DefaultSymbol(GeometryTypeConstant type, Color color)
+        {
+            if (type == GeometryTypeConstant.Point || type == GeometryTypeConstant.MultiPoint)
+                return new SimpleMarkerSymbol { Color = color, Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle };
+            if (type == GeometryTypeConstant.LineString || type == GeometryTypeConstant.MultiLineString)
+                return new SimpleLineSymbol { Color = color, Size = 0.6 };
+            return new SimpleFillSymbol
+            {
+                Color = Color.FromArgb((color.R + 2 * 255) / 3, (color.G + 2 * 255) / 3,
+                    (color.B + 2 * 255) / 3),
+                Outline = new SimpleLineSymbol { Color = color, Size = 0.3 }
+            };
+        }
+
         /// <summary>
         /// 图层“还没有设置过符号”时给它绑定一个默认符号（只绑一次，之后图层面板与地图共用同一个对象）。
         /// 返回是否新绑定了符号。
@@ -232,6 +247,14 @@ namespace GIS.Display
             if (layer == null || layer.FeatureClass == null) return false;
             if (layer.Renderer != null || layer.Symbol != null) return false;
             layer.Symbol = DefaultSymbol(layer.FeatureClass.GeometryType);
+            return true;
+        }
+
+        public static bool EnsureDefaultSymbol(Layer layer, Color color)
+        {
+            if (layer == null || layer.FeatureClass == null) return false;
+            if (layer.Renderer != null || layer.Symbol != null) return false;
+            layer.Symbol = DefaultSymbol(layer.FeatureClass.GeometryType, color);
             return true;
         }
 

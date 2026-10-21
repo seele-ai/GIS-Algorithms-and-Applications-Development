@@ -8,7 +8,7 @@ using ScreenPoint = System.Drawing.Point;
 namespace GIS.Display
 {
     /// <summary>
-    /// 单个图层的行控件。顶层一行：可见性勾选、名称（随长度伸缩）、上移/下移；
+    /// 单个图层的行控件。顶层一行：可见性勾选、可拖动的名称；
     /// 下方为符号区：简单渲染显示单一符号，唯一值/分级渲染显示“符号 + 属性”表格（可点击符号单独设置）。
     /// 右键任意位置弹出图层菜单。
     /// </summary>
@@ -16,8 +16,6 @@ namespace GIS.Display
     {
         private readonly CheckBox check = new CheckBox { AutoSize = true };
         private readonly Label nameLabel = new Label { AutoSize = true };
-        private readonly Button upBtn = new Button { Text = "↑", Size = new Size(22, 14) };
-        private readonly Button downBtn = new Button { Text = "↓", Size = new Size(22, 14) };
         private readonly ContextMenuStrip menu = new ContextMenuStrip();
         private static readonly ToolTip LegendHint = new ToolTip();   // 绑定属性错误符号的提示
         private readonly ToolStripMenuItem mniLabelToggle = new ToolStripMenuItem();
@@ -25,12 +23,13 @@ namespace GIS.Display
         private Panel symbolArea;
         private bool updating;
         private bool selectable = true;
+        private ScreenPoint dragStart;
+        private bool dragPending;
 
         public Layer Layer { get; }
 
         // 图层操作事件（由 LayerManagerControl 处理，因为需要访问地图）
-        public event Action<LayerControl> MoveUpRequested;
-        public event Action<LayerControl> MoveDownRequested;
+        public event Action<LayerControl> DragStarted;
         public event Action<LayerControl> RendererEditRequested;
         public event Action<LayerControl> LabelToggleRequested;
         public event Action<LayerControl> LabelEditRequested;
@@ -55,15 +54,15 @@ namespace GIS.Display
             check.CheckedChanged += (s, e) => { if (!updating) VisibilityChanged?.Invoke(this, check.Checked); };
 
             nameLabel.Location = new ScreenPoint(28, 8);
+            nameLabel.Cursor = Cursors.SizeAll;
             nameLabel.DoubleClick += (s, e) => BeginRename();
+            nameLabel.MouseDown += BeginLayerDrag;
+            nameLabel.MouseMove += ContinueLayerDrag;
+            nameLabel.MouseUp += (s, e) => dragPending = false;
+            MouseDown += BeginLayerDrag;
+            MouseMove += ContinueLayerDrag;
+            MouseUp += (s, e) => dragPending = false;
 
-            upBtn.Location = new ScreenPoint(196, 2);
-            downBtn.Location = new ScreenPoint(196, 16);
-            upBtn.Click += (s, e) => MoveUpRequested?.Invoke(this);
-            downBtn.Click += (s, e) => MoveDownRequested?.Invoke(this);
-
-            Controls.Add(downBtn);
-            Controls.Add(upBtn);
             Controls.Add(nameLabel);
             Controls.Add(check);
 
@@ -72,6 +71,23 @@ namespace GIS.Display
             ContextMenuStrip = menu;
             menu.Opening += (s, e) => RefreshMenuTexts();
             RefreshView();
+        }
+
+        private void BeginLayerDrag(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            dragStart = ((Control)sender).PointToScreen(e.Location);
+            dragPending = true;
+        }
+
+        private void ContinueLayerDrag(object sender, MouseEventArgs e)
+        {
+            if (!dragPending || (e.Button & MouseButtons.Left) == 0) return;
+            ScreenPoint now = ((Control)sender).PointToScreen(e.Location);
+            if (Math.Abs(now.X - dragStart.X) < SystemInformation.DragSize.Width / 2 &&
+                Math.Abs(now.Y - dragStart.Y) < SystemInformation.DragSize.Height / 2) return;
+            dragPending = false;
+            DragStarted?.Invoke(this);
         }
 
         #region 菜单
@@ -155,12 +171,6 @@ namespace GIS.Display
             updating = true;
             check.Checked = visible;
             updating = false;
-        }
-
-        public void SetMoveButtons(bool canUp, bool canDown)
-        {
-            upBtn.Enabled = canUp;
-            downBtn.Enabled = canDown;
         }
 
         /// <summary>模拟用户点击可见性复选框（供自检程序使用）。</summary>
@@ -451,6 +461,7 @@ namespace GIS.Display
         };
         private readonly List<LayerControl> rows = new List<LayerControl>();
         private MapControl map;
+        private int dragInsertIndex = -1;
         public event Action<Layer> AttributeTableRequested;
 
         public IReadOnlyList<LayerControl> LayerRows => rows;
@@ -463,6 +474,8 @@ namespace GIS.Display
             };
             Controls.Add(rowsPanel);
             Controls.Add(title);
+            RegisterDropTarget(rowsPanel);
+            rowsPanel.Paint += DrawDropPosition;
         }
 
         public void Bind(MapControl control)
@@ -477,6 +490,7 @@ namespace GIS.Display
 
         public void Rebuild()
         {
+            dragInsertIndex = -1;
             rows.Clear();
             rowsPanel.Controls.Clear();
             if (map == null) return;
@@ -485,11 +499,9 @@ namespace GIS.Display
             {
                 LayerControl lc = new LayerControl(layers[i]);
                 lc.SetChecked(layers[i].Visible);
-                lc.SetMoveButtons(i > 0, i < layers.Count - 1);
                 lc.SetSelectable(map.IsLayerSelectable(layers[i]));
                 lc.VisibilityChanged += (c, v) => map.SetLayerVisible(c.Layer, v);
-                lc.MoveUpRequested += c => MoveLayer(c, 1);
-                lc.MoveDownRequested += c => MoveLayer(c, -1);
+                lc.DragStarted += c => c.DoDragDrop(c.Layer, DragDropEffects.Move);
                 lc.RendererEditRequested += c => EditRenderer(c);
                 lc.LabelToggleRequested += c => ToggleLabel(c);
                 lc.LabelEditRequested += c => EditLabel(c);
@@ -505,22 +517,78 @@ namespace GIS.Display
                 lc.OpenAttributesRequested += c => AttributeTableRequested?.Invoke(c.Layer);
                 rowsPanel.Controls.Add(lc);
                 rows.Add(lc);
+                RegisterDropTarget(lc);
             }
         }
 
-        private int IndexOf(Layer layer)
+        private void RegisterDropTarget(Control control)
         {
-            for (int i = 0; i < map.Layers.Count; i++)
-                if (map.Layers[i] == layer) return i;
-            return -1;
+            control.AllowDrop = true;
+            control.DragEnter += LayerDragOver;
+            control.DragOver += LayerDragOver;
+            control.DragLeave += (s, e) => ClearDropPosition();
+            control.DragDrop += DropLayer;
+            foreach (Control child in control.Controls) RegisterDropTarget(child);
         }
 
-        private void MoveLayer(LayerControl c, int delta)
+        private void LayerDragOver(object sender, DragEventArgs e)
         {
-            int idx = IndexOf(c.Layer);
-            int target = idx + delta;
-            if (target >= 0 && target < map.Layers.Count)
-                map.MoveLayer(c.Layer, target);
+            if (map == null || !e.Data.GetDataPresent(typeof(Layer)))
+            {
+                e.Effect = DragDropEffects.None;
+                ClearDropPosition();
+                return;
+            }
+            Layer layer = e.Data.GetData(typeof(Layer)) as Layer;
+            if (layer == null || !map.Layers.Contains(layer))
+            {
+                e.Effect = DragDropEffects.None;
+                ClearDropPosition();
+                return;
+            }
+            e.Effect = DragDropEffects.Move;
+            int target = InsertionIndex(rowsPanel.PointToClient(new ScreenPoint(e.X, e.Y)).Y);
+            if (dragInsertIndex == target) return;
+            dragInsertIndex = target;
+            rowsPanel.Invalidate();
+        }
+
+        private int InsertionIndex(int y)
+        {
+            for (int i = 0; i < rows.Count; i++)
+                if (y < rows[i].Top + rows[i].Height / 2) return i;
+            return rows.Count;
+        }
+
+        private void DrawDropPosition(object sender, PaintEventArgs e)
+        {
+            if (dragInsertIndex < 0 || rows.Count == 0) return;
+            int y = dragInsertIndex == rows.Count ? rows[rows.Count - 1].Bottom + 2 : rows[dragInsertIndex].Top - 2;
+            using (var pen = new Pen(Color.FromArgb(46, 119, 196), 3))
+                e.Graphics.DrawLine(pen, 3, y, rowsPanel.ClientSize.Width - 6, y);
+        }
+
+        private void ClearDropPosition()
+        {
+            if (dragInsertIndex < 0) return;
+            dragInsertIndex = -1;
+            rowsPanel.Invalidate();
+        }
+
+        private void DropLayer(object sender, DragEventArgs e)
+        {
+            if (map == null || !e.Data.GetDataPresent(typeof(Layer))) return;
+            Layer layer = e.Data.GetData(typeof(Layer)) as Layer;
+            int insert = InsertionIndex(rowsPanel.PointToClient(new ScreenPoint(e.X, e.Y)).Y);
+            ClearDropPosition();
+            if (layer == null || !map.Layers.Contains(layer)) return;
+            var displayOrder = map.Layers.Reverse().ToList();
+            int oldIndex = displayOrder.IndexOf(layer);
+            displayOrder.RemoveAt(oldIndex);
+            if (insert > oldIndex) insert--;
+            displayOrder.Insert(insert, layer);
+            int newMapIndex = displayOrder.Count - 1 - insert;
+            if (newMapIndex != map.Layers.ToList().IndexOf(layer)) map.MoveLayer(layer, newMapIndex);
         }
 
         // 图层右键“投影到 WGS84”：把非 WGS84 坐标系的图层数据自动转换到 WGS84。

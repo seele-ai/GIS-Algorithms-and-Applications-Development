@@ -331,7 +331,6 @@ namespace GIS.Display.Demo
                         selectedTable, selectedSchema, 4326, 0, token, progress), token);
 
                 Layer layer = context.Layer;
-                layer.Symbol = CreateDefaultSymbol(layer.FeatureClass.GeometryType);
                 layer.CaptureGeographic(null);
                 layer.ApplyProjection(currentProjection);
                 Map.AddLayer(layer);
@@ -368,21 +367,6 @@ namespace GIS.Display.Demo
             {
                 if (Map.Layers.Contains(layer)) continue;
                 postgisLayers.Remove(layer);
-            }
-        }
-
-        private static Symbol CreateDefaultSymbol(GeometryTypeConstant type)
-        {
-            switch (type)
-            {
-                case GeometryTypeConstant.Point:
-                case GeometryTypeConstant.MultiPoint:
-                    return new SimpleMarkerSymbol { Color = Color.SteelBlue, Size = 3.5 };
-                case GeometryTypeConstant.LineString:
-                case GeometryTypeConstant.MultiLineString:
-                    return new SimpleLineSymbol { Color = Color.SteelBlue, Size = 0.8 };
-                default:
-                    return new SimpleFillSymbol { Color = Color.LightBlue };
             }
         }
 

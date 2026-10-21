@@ -13,6 +13,13 @@ namespace GIS.Display
         private readonly List<Layer> layers = new List<Layer>();
         private readonly Dictionary<Layer, Features> selections = new Dictionary<Layer, Features>();
         private readonly HashSet<Layer> nonSelectable = new HashSet<Layer>();
+        private static readonly Color[] DefaultLayerColors = {
+            Color.FromArgb(46, 119, 196), Color.FromArgb(220, 111, 45),
+            Color.FromArgb(46, 151, 105), Color.FromArgb(145, 91, 181),
+            Color.FromArgb(203, 76, 94), Color.FromArgb(30, 153, 161),
+            Color.FromArgb(170, 128, 37), Color.FromArgb(94, 109, 194)
+        };
+        private int nextDefaultColorIndex;
         private readonly MapTransform transform = new MapTransform();
         private ILayerRenderer renderer = new BasicGeometryDrawer();
         private MapInteractionMode mode = MapInteractionMode.Pan;
@@ -66,7 +73,9 @@ namespace GIS.Display
             // 图层若没有设置过符号/渲染器（例如刚导入的 shp），立刻绑定一个默认符号：
             // 地图与图层面板从此共用同一个符号对象，既不会“面板显示与地图不一致”，
             // 也不会因为面板重绘而重新生成随机颜色的符号（表现为“符号随上下移动而改变”）。
-            BasicGeometryDrawer.EnsureDefaultSymbol(layer);
+            if (BasicGeometryDrawer.EnsureDefaultSymbol(layer,
+                DefaultLayerColors[nextDefaultColorIndex % DefaultLayerColors.Length]))
+                nextDefaultColorIndex++;
             layers.Add(layer);
             selections.Add(layer, new Features());
             LayersChanged?.Invoke(this, EventArgs.Empty);
