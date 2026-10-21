@@ -59,6 +59,7 @@ namespace GIS.Display.UI
             ReloadRows(); FitColumns();
             Activated += (s,e) => ReloadRows();
             if (map != null) { map.SelectionChanged += MapSelectionChanged; map.LayersChanged += MapLayersChanged; }
+            DialogLayout.Apply(this);
         }
         public void ReloadRows()
         {

@@ -47,6 +47,7 @@ namespace GIS.Display.Demo
                 catch (ArgumentException ex) { MessageBox.Show(this, ex.Message, "无法创建图层", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
             bottom.Controls.Add(cancel); bottom.Controls.Add(ok); Controls.Add(fields); Controls.Add(top); Controls.Add(bottom); AcceptButton = ok; CancelButton = cancel;
+            GIS.Display.UI.DialogLayout.Apply(this);
         }
     }
     public sealed class NewFeatureAttributesForm : Form
@@ -73,6 +74,7 @@ namespace GIS.Display.Demo
                 Values = new Attributes(schema, values); DialogResult = DialogResult.OK;
             };
             bottom.Controls.Add(cancel); bottom.Controls.Add(ok); Controls.Add(grid); Controls.Add(hint); Controls.Add(bottom); AcceptButton = ok; CancelButton = cancel;
+            GIS.Display.UI.DialogLayout.Apply(this);
         }
         public static object ParseValue(string text, FieldTypeConstant type)
         {

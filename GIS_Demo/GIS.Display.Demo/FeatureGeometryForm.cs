@@ -52,6 +52,7 @@ namespace GIS.Display.Demo
             preview.VertexMoved = () => LoadGrid(preview.SelectedVertex);
             preview.BeforeDrag = () => { try { ReadGrid(); return true; } catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is OverflowException) { ShowError(ex); return false; } };
             Controls.Add(split); Controls.Add(selectionHint); Controls.Add(controls); Controls.Add(footer); Controls.Add(hint);
+            GIS.Display.UI.DialogLayout.Apply(this);
             LoadGrid(); Shown += (s,e) => { split.SplitterDistance = (int)(split.Width * 0.4); preview.FullExtent(); };
         }
         private static string[] PartNames(Geometry geometry)

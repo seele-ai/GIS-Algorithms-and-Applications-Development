@@ -42,6 +42,7 @@ namespace GIS.Display.Demo
             add.Click += (s, e) => SelectTable();
             close.Click += (s, e) => { if (CloseRequested != null) CloseRequested(this, EventArgs.Empty); };
             tables.DoubleClick += (s, e) => SelectTable();
+            GIS.Display.UI.DialogLayout.Apply(this);
         }
 
         private void BuildLoadOptions()

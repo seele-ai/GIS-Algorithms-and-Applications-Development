@@ -113,6 +113,7 @@ namespace GIS.Display.UI
             Controls.Add(current);
             Controls.Add(hint);
             Controls.Add(btns);
+            DialogLayout.Apply(this);
 
             if (detectedSource)
             {

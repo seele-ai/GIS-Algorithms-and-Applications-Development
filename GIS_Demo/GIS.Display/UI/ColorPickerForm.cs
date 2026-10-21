@@ -81,6 +81,7 @@ namespace GIS.Display.UI
             alphaBar.MouseUp += (s, e) => FinalizeAlpha();
             alphaBar.KeyUp += (s, e) => FinalizeAlpha();
             SetColor(initial.A == 0 && initial == Color.Empty ? Color.Black : initial);
+            DialogLayout.Apply(this);
         }
 
         private void SetColor(Color c)

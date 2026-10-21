@@ -813,6 +813,7 @@ namespace GIS.Display.UI
             if (zoneBox.Value > zoneBox.Maximum) zoneBox.Value = zoneBox.Maximum;
             UpdateSliderInfo();
             UpdateSummary();
+            DialogLayout.Apply(this);
         }
 
         /// <summary>当前分带方式。</summary>

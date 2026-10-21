@@ -99,6 +99,7 @@ namespace GIS.Display.UI
             else tabs.SelectedIndex = 0;
 
             PopulateFields();
+            DialogLayout.Apply(this);
         }
 
         private Button CreateActionButton(string text, Action click, int minimumWidth = 0)

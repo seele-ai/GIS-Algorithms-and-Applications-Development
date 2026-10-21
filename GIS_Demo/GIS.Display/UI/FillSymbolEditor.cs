@@ -55,6 +55,7 @@ namespace GIS.Display.UI
             AcceptButton = ok; CancelButton = cancel;
             RebuildList();
             RefreshPreview();
+            DialogLayout.Apply(this);
         }
 
         private void AddOutline()
@@ -182,6 +183,7 @@ namespace GIS.Display.UI
             Controls.Add(preview);
             AcceptButton = ok; CancelButton = cancel;
             RefreshPreview();
+            DialogLayout.Apply(this);
         }
 
         private void RefreshPreview() => preview.Invalidate();

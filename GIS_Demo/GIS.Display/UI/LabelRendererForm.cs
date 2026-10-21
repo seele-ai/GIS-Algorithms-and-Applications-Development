@@ -115,6 +115,7 @@ namespace GIS.Display.UI
             Controls.Add(grid);
             Controls.Add(preview);
             AcceptButton = ok; CancelButton = cancel;
+            DialogLayout.Apply(this);
         }
 
         /// <summary>把当前界面设置写回图层（不关闭窗口），并通知外部刷新。</summary>

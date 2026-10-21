@@ -85,6 +85,7 @@ namespace GIS.Display.Demo
             Controls.Add(fields);
             AcceptButton = export;
             CancelButton = cancel;
+            GIS.Display.UI.DialogLayout.Apply(this);
         }
 
         private static void AddRow(TableLayoutPanel panel, int row, string text, Control control)

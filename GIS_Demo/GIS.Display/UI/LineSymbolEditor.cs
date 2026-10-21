@@ -166,6 +166,7 @@ namespace GIS.Display.UI
             RebuildDashList();
             RebuildOffsetList();
             RefreshPreview();
+            DialogLayout.Apply(this);
         }
 
         private void AddOffset()
@@ -440,6 +441,7 @@ namespace GIS.Display.UI
             Controls.Add(btns);
             Controls.Add(grid);
             AcceptButton = ok; CancelButton = cancel;
+            DialogLayout.Apply(this);
         }
 
         private static NumericUpDown Num(decimal min, decimal max, decimal inc)
@@ -514,6 +516,7 @@ namespace GIS.Display.UI
             Controls.Add(preview);
             AcceptButton = ok; CancelButton = cancel;
             RefreshPreview();
+            DialogLayout.Apply(this);
         }
 
         // 预览：中间一条基准线，再加上本偏移线。

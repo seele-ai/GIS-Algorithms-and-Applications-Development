@@ -386,6 +386,7 @@ namespace GIS.Display.UI
             Controls.Add(list);
             Controls.Add(btns);
             AcceptButton = ok; CancelButton = cancel;
+            DialogLayout.Apply(this);
         }
 
         /// <summary>弹出内置色带选择框，返回选中的色带副本。</summary>
@@ -478,6 +479,7 @@ namespace GIS.Display.UI
 
             strip.Ramp = working;
             UpdateInfo();
+            DialogLayout.Apply(this);
         }
 
         private static void AddButton(Control host, string text, EventHandler handler)
@@ -695,6 +697,7 @@ namespace GIS.Display.UI
                 btns.Controls.Add(cancel); btns.Controls.Add(ok);
                 form.Controls.Add(btns); form.Controls.Add(box); form.Controls.Add(label);
                 form.AcceptButton = ok; form.CancelButton = cancel;
+                DialogLayout.Apply(form);
                 if (form.ShowDialog(owner) != DialogResult.OK) return false;
                 position = (double)box.Value;
                 return true;
@@ -749,6 +752,7 @@ namespace GIS.Display.UI
                 form.Controls.Add(rgb);
                 form.Controls.Add(label);
                 form.AcceptButton = ok; form.CancelButton = cancel;
+                DialogLayout.Apply(form);
                 repaint();
                 if (form.ShowDialog(owner) != DialogResult.OK) return false;
                 value = rgb.Checked ? RampInterpolation.Rgb : RampInterpolation.Hsv;

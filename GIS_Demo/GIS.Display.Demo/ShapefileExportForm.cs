@@ -28,6 +28,7 @@ namespace GIS.Display.Demo
             export.Click += (s, e) => Export();
             var cancel = new Button { Text = "关闭", Left = 375, Top = 153, Width = 85, Height = 30, DialogResult = DialogResult.Cancel };
             Controls.Add(export); Controls.Add(cancel); AcceptButton = export; CancelButton = cancel;
+            GIS.Display.UI.DialogLayout.Apply(this);
         }
         private void Export()
         {

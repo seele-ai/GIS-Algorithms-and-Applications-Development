@@ -77,6 +77,7 @@ namespace GIS.Display.UI
             AcceptButton = ok;
             CancelButton = cancel;
             RefreshPreview();
+            DialogLayout.Apply(this);
         }
 
         private void RefreshPreview() => preview.Invalidate();
