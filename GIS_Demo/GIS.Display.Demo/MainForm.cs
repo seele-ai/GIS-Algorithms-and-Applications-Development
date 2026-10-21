@@ -33,7 +33,6 @@ namespace GIS.Display.Demo
         private SplitContainer workspaceSplit;
         private TabControl bottomTabs;
         private TabPage selectionTab;
-        private Button closeAttributeTabButton;
         private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
         private bool mainContentSplitterInitialized;
 
@@ -123,23 +122,18 @@ namespace GIS.Display.Demo
             workspaceSplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
                 FixedPanel = FixedPanel.Panel2, Panel1MinSize = 240, Panel2MinSize = 100 };
             workspaceSplit.Panel1.Controls.Add(mainContent);
-            var bottomHeader = new Panel { Dock = DockStyle.Top, Height = 30 };
-            bottomHeader.Controls.Add(new Label { Text = "数据表", Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) });
-            closeAttributeTabButton = new Button { Text = "关闭当前属性表", Dock = DockStyle.Right, Width = 120, Enabled = false };
-            closeAttributeTabButton.Click += (s, e) => CloseSelectedAttributeTable();
-            bottomHeader.Controls.Add(closeAttributeTabButton);
-            bottomTabs = new TabControl { Dock = DockStyle.Fill };
+            bottomTabs = new TabControl { Dock = DockStyle.Fill,
+                DrawMode = TabDrawMode.OwnerDrawFixed, Padding = new System.Drawing.Point(20, 5) };
+            bottomTabs.DrawItem += DrawBottomTab;
+            bottomTabs.MouseDown += BottomTabsMouseDown;
+            bottomTabs.MouseMove += BottomTabsMouseMove;
             selectionTab = new TabPage("选择结果");
             selectionList.Columns.Add("图层", 230);
             selectionList.Columns.Add("名称", 280);
             selectionList.Columns.Add("几何类型", 180);
             selectionTab.Controls.Add(selectionList);
             bottomTabs.TabPages.Add(selectionTab);
-            bottomTabs.SelectedIndexChanged += (s, e) =>
-                closeAttributeTabButton.Enabled = bottomTabs.SelectedTab != selectionTab;
             workspaceSplit.Panel2.Controls.Add(bottomTabs);
-            workspaceSplit.Panel2.Controls.Add(bottomHeader);
             var status = new StatusStrip();
             status.Items.Add(scale);
             status.Items.Add(selected);
