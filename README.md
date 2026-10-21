@@ -20,6 +20,8 @@ GIS_Demo\GIS.Display.Demo\bin\Release\net48\GIS.Display.Demo.exe
 
 环境要求：Windows、Visual Studio 2022 或 .NET SDK 8、.NET Framework 4.8 目标包。
 
+主程序启用逐显示器高 DPI 支持，减少 Windows 缩放导致的文字模糊。若要复制编译后的程序，请将 `GIS.Display.Demo.exe.config` 与可执行文件放在同一目录，以保留该设置。
+
 ## 工程结构
 
 ```text
