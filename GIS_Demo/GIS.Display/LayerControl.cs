@@ -48,13 +48,13 @@ namespace GIS.Display
         public LayerControl(Layer layer)
         {
             Layer = layer;
+            Font = new Font("Microsoft YaHei UI", 9F);
             Width = 224;
 
             check.Location = new ScreenPoint(6, 8);
             check.CheckedChanged += (s, e) => { if (!updating) VisibilityChanged?.Invoke(this, check.Checked); };
 
             nameLabel.Location = new ScreenPoint(28, 8);
-            nameLabel.Cursor = Cursors.SizeAll;
             nameLabel.DoubleClick += (s, e) => BeginRename();
             nameLabel.MouseDown += BeginLayerDrag;
             nameLabel.MouseMove += ContinueLayerDrag;
@@ -226,9 +226,9 @@ namespace GIS.Display
             {
                 Location = new ScreenPoint(4, 2),
                 Size = new Size(60, 30),
-                BackColor = Color.White,
+                BackColor = Color.Transparent,
                 Cursor = Cursors.Hand,
-                BorderStyle = BorderStyle.FixedSingle
+                BorderStyle = BorderStyle.None
             };
             p.Paint += (s, e) => {
                 Symbol sym = GetPreviewSymbol();
@@ -256,9 +256,9 @@ namespace GIS.Display
         private int AttachLegend(string title, int count, Func<int, Symbol> getSymbol, Func<int, string> getLabel,
             Renderer renderer, Symbol extraSymbol, string extraLabel, bool bindingError)
         {
-            const int rowHeight = 26;
-            int rowH = bindingError ? 42 : rowHeight;   // 绑定错误时符号行加高，便于显示“绑定属性错误”
-            int headerHeight = string.IsNullOrEmpty(title) ? 0 : 20;
+            int rowH = Math.Max(30, Font.Height + 10);
+            if (bindingError) rowH = Math.Max(rowH, Font.Height * 2 + 10);
+            int headerHeight = string.IsNullOrEmpty(title) ? 0 : Math.Max(26, Font.Height + 8);
             int rowCount = count + (extraSymbol != null ? 1 : 0);
             int fullHeight = headerHeight + rowCount * rowH + 20;   // 底部留余量，保证最后一行可完整滚到
             int maxHeight = headerHeight + 4 * rowH;                 // 高度阈值：最多显示 4 个符号行
@@ -277,9 +277,9 @@ namespace GIS.Display
                 {
                     Text = title,
                     AutoSize = false,
-                    Size = new Size(205, 20),
+                    Size = new Size(205, headerHeight),
                     Margin = new Padding(0),
-                    Font = new Font("Microsoft YaHei UI", 9, FontStyle.Bold),
+                    Font = new Font(Font, FontStyle.Bold),
                     TextAlign = ContentAlignment.MiddleLeft,
                     Padding = new Padding(4, 0, 0, 0)
                 });
@@ -297,11 +297,11 @@ namespace GIS.Display
                 };
                 var sym = new Panel
                 {
-                    Size = new Size(60, 24),
-                    BackColor = Color.White,
-                    BorderStyle = BorderStyle.FixedSingle,
+                    Size = new Size(60, rowH - 4),
+                    BackColor = Color.Transparent,
+                    BorderStyle = BorderStyle.None,
                     Cursor = canEdit ? Cursors.Hand : Cursors.Default,
-                    Margin = new Padding(4, 1, 8, 0)
+                    Margin = new Padding(4, 2, 8, 2)
                 };
                 sym.Paint += (s, e) => {
                     Symbol s2 = isExtra ? extraSymbol : getSymbol(index);
@@ -320,13 +320,18 @@ namespace GIS.Display
                     LegendHint.SetToolTip(sym, "绑定属性错误：符号不可单独设置。\r\n请右键图层，选“修改图层符号/渲染”，重新绑定字段后生成。");
                 }
                 sym.ContextMenuStrip = menu;
-                var lbl = new Label { Text = isExtra ? extraLabel : getLabel(index), AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
+                var lbl = new Label {
+                    Text = isExtra ? extraLabel : getLabel(index),
+                    AutoSize = false, AutoEllipsis = true,
+                    Size = new Size(133, rowH), Margin = new Padding(0),
+                    TextAlign = ContentAlignment.MiddleLeft
+                };
                 if (bindingError && !isExtra)
                 {
                     // 绑定字段不存在的分级/唯一值符号：以红色感叹号符号表示，文字后面跟“绑定属性错误”
                     lbl.Text = getLabel(index) + "  " + Renderer.BindingErrorText;
                     lbl.ForeColor = Color.Red;
-                    lbl.MaximumSize = new Size(130, 0);
+                    lbl.AutoEllipsis = false;
                 }
                 lbl.ContextMenuStrip = menu;    // 右键整行都能打开图层菜单（含“修改图层符号/渲染”）
                 row.ContextMenuStrip = menu;
