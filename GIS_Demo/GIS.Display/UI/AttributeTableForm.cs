@@ -142,15 +142,20 @@ namespace GIS.Display.UI
                 grid.Rows.Clear();
                 var selected = showSelectedOnly && map != null && map.Layers.Contains(layer)
                     ? new HashSet<Feature>(map.GetSelection(layer)) : null;
+                var rows = new List<DataGridViewRow>(showSelectedOnly ? 0 : layer.FeatureClass.Features.Count);
+                int displayIndex = 0;
                 foreach (Feature feature in layer.FeatureClass.Features)
                 {
                     if (showSelectedOnly && (selected == null || !selected.Contains(feature))) continue;
                     var values = new object[grid.Columns.Count];
                     for (int i = 0; i < layer.FeatureClass.Fields.Count; i++)
                         values[i] = feature.Attributes?.GetItem(i);
-                    if (layer.FeatureClass.Fields.Count == 0) values[0] = "要素 " + (grid.Rows.Count + 1);
-                    grid.Rows[grid.Rows.Add(values)].Tag = feature;
+                    if (layer.FeatureClass.Fields.Count == 0) values[0] = "要素 " + (++displayIndex);
+                    var row = new DataGridViewRow { Tag = feature };
+                    row.CreateCells(grid, values);
+                    rows.Add(row);
                 }
+                if (rows.Count > 0) grid.Rows.AddRange(rows.ToArray());
                 ApplyCurrentSort();
                 foreach (DataGridViewRow row in grid.Rows)
                     if (ReferenceEquals(row.Tag, current)) { grid.CurrentCell = row.Cells[0]; break; }
