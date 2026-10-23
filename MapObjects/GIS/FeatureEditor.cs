@@ -4,8 +4,14 @@ using System.Linq;
 
 namespace GIS
 {
+    public interface IEditCommand
+    {
+        void Undo();
+        void Redo();
+    }
+
     /// <summary>以经纬度为编辑真值；提交、撤销和重做同时维护要素与坐标快照。</summary>
-    public sealed class FeatureEditCommand
+    public sealed class FeatureEditCommand : IEditCommand
     {
         private sealed class State
         {
@@ -87,6 +93,55 @@ namespace GIS
             }
             layer.CaptureGeographic(null);
             for (int i = 0; i < state.Features.Length; i++) state.Features[i].Geometry = display[i];
+        }
+    }
+
+    /// <summary>添加字段命令；更新全部要素属性，并支持撤销与重做。</summary>
+    public sealed class AddFieldEditCommand : IEditCommand
+    {
+        private readonly Layer layer;
+        private readonly Field field;
+        private readonly object defaultValue;
+        private bool applied;
+
+        private AddFieldEditCommand(Layer layer, Field field, object defaultValue)
+        {
+            this.layer = layer;
+            this.field = field;
+            this.defaultValue = defaultValue;
+            Apply();
+        }
+
+        public static AddFieldEditCommand Create(Layer layer, Field field, object defaultValue)
+        {
+            if (layer == null) throw new ArgumentNullException("layer");
+            return new AddFieldEditCommand(layer, field, defaultValue);
+        }
+
+        public void Undo()
+        {
+            if (!applied) return;
+            if (layer.Renderer != null && string.Equals(layer.Renderer.BoundField, field.Name, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("字段正在用于图层渲染，请先更换渲染字段再撤销。");
+            if (layer.LabelRenderer != null && layer.LabelRenderer.LabelFeatures &&
+                string.Equals(layer.LabelRenderer.Field, field.Name, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("字段正在用于图层标注，请先更换标注字段再撤销。");
+            layer.FeatureClass.RemoveLastField(field.Name);
+            applied = false;
+        }
+
+        public void Redo()
+        {
+            if (applied) return;
+            Apply();
+        }
+
+        private void Apply()
+        {
+            Field stored = layer.FeatureClass.AddField(field, defaultValue);
+            field.Name = stored.Name;
+            field.Alias = stored.Alias;
+            applied = true;
         }
     }
 

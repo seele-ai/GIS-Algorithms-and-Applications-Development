@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 
 namespace GIS
 {
@@ -109,6 +110,43 @@ namespace GIS
             }
             //（3）加入集合
             _Features.Add(feature);
+        }
+
+        /// <summary>
+        /// 向字段模式末尾添加字段，并为所有现有要素写入同一个默认值。
+        /// 字段模式与属性值会作为一次操作同步更新。
+        /// </summary>
+        public Field AddField(Field field, object defaultValue)
+        {
+            if (field == null) throw new ArgumentNullException("field");
+            string name = (field.Name ?? "").Trim();
+            if (name.Length == 0) throw new ArgumentException("字段名不能为空。");
+            if (_Fields.Any(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("字段“" + name + "”已存在。");
+            if (defaultValue != null && !FieldTypeTools.GetFrameworkValueType(field.ValueType).IsInstanceOfType(defaultValue))
+                throw new ArgumentException("默认值与字段类型不匹配。");
+            foreach (Feature feature in _Features)
+                if (feature.Attributes == null || feature.Attributes.Count != _Fields.Count)
+                    throw new InvalidOperationException("图层中存在属性模式不一致的要素，无法添加字段。");
+
+            var stored = new Field(name, field.ValueType,
+                string.IsNullOrWhiteSpace(field.Alias) ? name : field.Alias.Trim());
+            _Fields.Add(stored);
+            foreach (Feature feature in _Features) feature.Attributes.Append(defaultValue);
+            return stored;
+        }
+
+        /// <summary>删除最后一个字段及其对应属性值，供添加字段的撤销操作使用。</summary>
+        public void RemoveLastField(string expectedName)
+        {
+            int index = _Fields.Count - 1;
+            if (index < 0 || !string.Equals(_Fields[index].Name, expectedName, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("字段模式已被其他操作修改，不能撤销这次添加字段操作。");
+            foreach (Feature feature in _Features)
+                if (feature.Attributes == null || feature.Attributes.Count != _Fields.Count)
+                    throw new InvalidOperationException("图层中存在属性模式不一致的要素，不能撤销这次添加字段操作。");
+            foreach (Feature feature in _Features) feature.Attributes.RemoveAt(index);
+            _Fields.RemoveAt(index);
         }
 
         /// <summary>

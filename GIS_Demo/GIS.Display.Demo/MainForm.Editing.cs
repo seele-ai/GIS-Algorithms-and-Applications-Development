@@ -10,7 +10,7 @@ namespace GIS.Display.Demo
         private sealed class EditHistory
         {
             public Layer Layer;
-            public FeatureEditCommand Command;
+            public IEditCommand Command;
         }
         private readonly Stack<EditHistory> editUndo = new Stack<EditHistory>();
         private readonly Stack<EditHistory> editRedo = new Stack<EditHistory>();
@@ -60,7 +60,7 @@ namespace GIS.Display.Demo
             if (single && features.Length != 1) throw new InvalidOperationException("编辑几何或属性时，请只选择一个要素。");
             return Tuple.Create(layer,features);
         }
-        private void RememberEdit(Layer layer, FeatureEditCommand command)
+        private void RememberEdit(Layer layer, IEditCommand command)
         {
             editUndo.Push(new EditHistory { Layer = layer, Command = command }); editRedo.Clear(); MarkEdited(layer);
             EditingCompleted("修改已保存到内存，可撤销；点击主界面“保存编辑”或按 Ctrl+S 确认修改并清空撤销记录。");

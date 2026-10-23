@@ -105,6 +105,18 @@ namespace GIS
             return _Values.ToArray();
         }
 
+        /// <summary>在末尾追加一个属性值。仅供要素类统一变更字段模式时使用。</summary>
+        internal void Append(object value)
+        {
+            _Values.Add(value);
+        }
+
+        /// <summary>删除指定位置的属性值。仅供要素类统一变更字段模式时使用。</summary>
+        internal void RemoveAt(Int32 index)
+        {
+            _Values.RemoveAt(index);
+        }
+
         #endregion
     }
 }

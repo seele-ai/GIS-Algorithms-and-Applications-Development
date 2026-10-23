@@ -38,6 +38,7 @@ namespace GIS.Display.UI
         private readonly ToolStripButton zoomToSelection = new ToolStripButton("缩放至选择");
         public event Action<Features> SelectionRequested;
         public event Action<Feature> EditRequested;
+        public event Action AddFieldRequested;
         public event Action SaveEditsRequested;
 
         public AttributeTableForm(Layer layer) : this(layer, null) { }
@@ -60,18 +61,7 @@ namespace GIS.Display.UI
             grid.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(240, 243, 247);
             grid.RowHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(205, 224, 252);
             grid.RowHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(25, 25, 25);
-            foreach (Field f in layer.FeatureClass.Fields)
-                grid.Columns.Add(new DataGridViewTextBoxColumn {
-                    HeaderText = string.IsNullOrEmpty(f.Alias) ? f.Name : f.Alias,
-                    Name = f.Name, MinimumWidth = 90, Width = 130,
-                    SortMode = DataGridViewColumnSortMode.Programmatic
-                });
-            // 无属性字段的要素也保留一行，可选择、打开编辑。
-            if (grid.Columns.Count == 0)
-            {
-                grid.Columns.Add("feature", "要素");
-                grid.Columns[0].SortMode = DataGridViewColumnSortMode.Programmatic;
-            }
+            EnsureColumns();
             var tools = new ToolStrip {
                 GripStyle = ToolStripGripStyle.Hidden, Dock = DockStyle.Top,
                 Padding = new Padding(6, 3, 6, 3), BackColor = Color.FromArgb(248, 249, 251)
@@ -84,6 +74,8 @@ namespace GIS.Display.UI
             selectedOnly.CheckedChanged += (s,e) => { showSelectedOnly = selectedOnly.Checked; ReloadRows(); };
             var fit = new ToolStripButton("适应列宽") { ToolTipText = "根据当前显示内容调整列宽" };
             fit.Click += (s,e) => FitColumns();
+            var addField = new ToolStripButton("添加字段") { ToolTipText = "向当前图层添加属性字段" };
+            addField.Click += (s,e) => AddFieldRequested?.Invoke();
             var save = new ToolStripButton("保存编辑") { ToolTipText = "确认当前页面修改并清空撤销记录，不写入文件" };
             save.Click += (s,e) => SaveEditsRequested?.Invoke();
             tools.Items.Add(clearSelection);
@@ -91,6 +83,7 @@ namespace GIS.Display.UI
             tools.Items.Add(selectedOnly);
             tools.Items.Add(new ToolStripSeparator());
             tools.Items.Add(fit);
+            tools.Items.Add(addField);
             tools.Items.Add(new ToolStripSeparator());
             tools.Items.Add(save);
             var status = new StatusStrip { SizingGrip = false, BackColor = Color.FromArgb(248, 249, 251) };
@@ -140,6 +133,7 @@ namespace GIS.Display.UI
             try
             {
                 grid.Rows.Clear();
+                EnsureColumns();
                 var selected = showSelectedOnly && map != null && map.Layers.Contains(layer)
                     ? new HashSet<Feature>(map.GetSelection(layer)) : null;
                 var rows = new List<DataGridViewRow>(showSelectedOnly ? 0 : layer.FeatureClass.Features.Count);
@@ -166,6 +160,44 @@ namespace GIS.Display.UI
             }
             finally { syncingSelection = false; }
             HighlightSelection();
+        }
+
+        private void EnsureColumns()
+        {
+            var fields = layer.FeatureClass.Fields;
+            bool matches = fields.Count == grid.Columns.Count;
+            if (fields.Count == 0)
+                matches = grid.Columns.Count == 1 && grid.Columns[0].Name == "feature";
+            else if (matches)
+                for (int i = 0; i < fields.Count; i++)
+                    if (!string.Equals(grid.Columns[i].Name, fields[i].Name, StringComparison.Ordinal))
+                    { matches = false; break; }
+            if (matches) return;
+
+            var widths = grid.Columns.Cast<DataGridViewColumn>()
+                .ToDictionary(c => c.Name, c => c.Width, StringComparer.Ordinal);
+            grid.Columns.Clear();
+            foreach (Field field in fields)
+            {
+                int width;
+                grid.Columns.Add(new DataGridViewTextBoxColumn {
+                    HeaderText = string.IsNullOrEmpty(field.Alias) ? field.Name : field.Alias,
+                    Name = field.Name, MinimumWidth = 90,
+                    Width = widths.TryGetValue(field.Name, out width) ? width : 130,
+                    SortMode = DataGridViewColumnSortMode.Programmatic
+                });
+            }
+            if (grid.Columns.Count == 0)
+            {
+                grid.Columns.Add("feature", "要素");
+                grid.Columns[0].SortMode = DataGridViewColumnSortMode.Programmatic;
+            }
+            if (!string.IsNullOrEmpty(sortColumnName) && !grid.Columns.Contains(sortColumnName))
+            {
+                sortColumnName = null;
+                sortDirection = null;
+            }
+            contextColumnIndex = -1;
         }
         private void ClearAutomaticFirstRowSelection()
         {

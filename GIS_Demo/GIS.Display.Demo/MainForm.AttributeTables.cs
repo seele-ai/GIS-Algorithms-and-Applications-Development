@@ -34,6 +34,7 @@ namespace GIS.Display.Demo
             table.SelectionRequested += selection =>
                 Map.SetSelection(layer, selection, SelectMethodConstant.CreateNew);
             table.EditRequested += feature => EditAttributeTableFeature(layer, feature);
+            table.AddFieldRequested += () => AddAttributeField(layer);
             table.SaveEditsRequested += SavePendingEdits;
             table.FormClosed += (sender, args) => {
                 attributeTables.Remove(layer);
@@ -47,6 +48,22 @@ namespace GIS.Display.Demo
             workspaceSplit.Panel2Collapsed = false;
             table.Show();
             SetBottomHeight(300);
+        }
+
+        private void AddAttributeField(Layer layer)
+        {
+            try
+            {
+                if (Map.IsCreating) throw new InvalidOperationException("请先完成或退出当前创建。");
+                if (!Map.Layers.Contains(layer)) throw new InvalidOperationException("目标图层已移除。");
+                using (var dialog = new AddFieldForm(layer.FeatureClass.Fields))
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                        RememberEdit(layer, AddFieldEditCommand.Create(layer, dialog.ResultField, dialog.DefaultValue));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is OverflowException)
+            {
+                MessageBox.Show(this, ex.Message, "添加字段", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private void EditAttributeTableFeature(Layer layer, Feature feature)

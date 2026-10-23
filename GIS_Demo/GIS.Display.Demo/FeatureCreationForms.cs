@@ -86,13 +86,113 @@ namespace GIS.Display.Demo
                 case FieldTypeConstant.Byte: return byte.Parse(text, NumberStyles.Integer, culture);
                 case FieldTypeConstant.Int16: return short.Parse(text, NumberStyles.Integer, culture);
                 case FieldTypeConstant.Int32: return int.Parse(text, NumberStyles.Integer, culture);
+                case FieldTypeConstant.Int64: return long.Parse(text, NumberStyles.Integer, culture);
                 case FieldTypeConstant.Single:
                     float f = float.Parse(text, NumberStyles.Float, culture); if (float.IsInfinity(f) || float.IsNaN(f)) throw new FormatException("必须为有限数值。"); return f;
                 case FieldTypeConstant.Double:
                     double d = double.Parse(text, NumberStyles.Float, culture); if (double.IsInfinity(d) || double.IsNaN(d)) throw new FormatException("必须为有限数值。"); return d;
+                case FieldTypeConstant.Decimal: return decimal.Parse(text, NumberStyles.Number, culture);
                 case FieldTypeConstant.Date: return DateTime.ParseExact(text.Trim(), "yyyy-MM-dd", culture);
                 case FieldTypeConstant.Boolean: return bool.Parse(text.Trim());
                 default: throw new FormatException("不支持的字段类型。");
+            }
+        }
+    }
+
+    public sealed class AddFieldForm : Form
+    {
+        private sealed class TypeChoice
+        {
+            public string Text { get; private set; }
+            public FieldTypeConstant Type { get; private set; }
+            public TypeChoice(string text, FieldTypeConstant type) { Text = text; Type = type; }
+            public override string ToString() { return Text; }
+        }
+
+        private readonly Fields existingFields;
+        private readonly TextBox fieldName = new TextBox { Dock = DockStyle.Fill };
+        private readonly TextBox alias = new TextBox { Dock = DockStyle.Fill };
+        private readonly ComboBox fieldType = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+        private readonly TextBox defaultValue = new TextBox { Dock = DockStyle.Fill };
+        public Field ResultField { get; private set; }
+        public object DefaultValue { get; private set; }
+
+        public AddFieldForm(Fields fields)
+        {
+            existingFields = fields;
+            Text = "添加字段";
+            Font = new Font("Microsoft YaHei UI", 10F);
+            ClientSize = new Size(520, 300);
+            MinimumSize = Size;
+            StartPosition = FormStartPosition.CenterParent;
+
+            fieldType.Items.AddRange(new object[] {
+                new TypeChoice("文本", FieldTypeConstant.Text),
+                new TypeChoice("整数", FieldTypeConstant.Int32),
+                new TypeChoice("长整数", FieldTypeConstant.Int64),
+                new TypeChoice("小数", FieldTypeConstant.Double),
+                new TypeChoice("高精度小数", FieldTypeConstant.Decimal),
+                new TypeChoice("日期", FieldTypeConstant.Date),
+                new TypeChoice("布尔值", FieldTypeConstant.Boolean)
+            });
+            fieldType.SelectedIndex = 0;
+
+            var form = new TableLayoutPanel {
+                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5,
+                Padding = new Padding(18, 16, 18, 8)
+            };
+            form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+            form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 4; i++) form.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
+            form.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            AddRow(form, 0, "字段名称", fieldName);
+            AddRow(form, 1, "显示别名", alias);
+            AddRow(form, 2, "字段类型", fieldType);
+            AddRow(form, 3, "默认值", defaultValue);
+            form.Controls.Add(new Label {
+                Text = "默认值留空时写入 NULL。日期格式为 yyyy-MM-dd，布尔值填写 true 或 false。\r\n新字段先保存在当前图层内存中，导出文件或上传 PostGIS 后可持久保存。",
+                AutoSize = false, Dock = DockStyle.Fill, ForeColor = Color.FromArgb(90, 90, 90), Padding = new Padding(0, 6, 0, 0)
+            }, 0, 4);
+            form.SetColumnSpan(form.GetControlFromPosition(0, 4), 2);
+
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+            var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
+            var ok = new Button { Text = "添加", AutoSize = true };
+            ok.Click += Confirm;
+            bottom.Controls.Add(cancel);
+            bottom.Controls.Add(ok);
+            Controls.Add(form);
+            Controls.Add(bottom);
+            AcceptButton = ok;
+            CancelButton = cancel;
+            GIS.Display.UI.DialogLayout.Apply(this);
+        }
+
+        private static void AddRow(TableLayoutPanel form, int row, string caption, Control control)
+        {
+            form.Controls.Add(new Label { Text = caption, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
+            control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            form.Controls.Add(control, 1, row);
+        }
+
+        private void Confirm(object sender, EventArgs e)
+        {
+            try
+            {
+                string name = fieldName.Text.Trim();
+                if (name.Length == 0) throw new ArgumentException("请输入字段名称。");
+                if (existingFields.Any(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("字段“" + name + "”已存在，请使用其他名称。");
+                var choice = (TypeChoice)fieldType.SelectedItem;
+                object parsed = NewFeatureAttributesForm.ParseValue(defaultValue.Text, choice.Type);
+                string displayAlias = string.IsNullOrWhiteSpace(alias.Text) ? name : alias.Text.Trim();
+                ResultField = new Field(name, choice.Type, displayAlias);
+                DefaultValue = parsed;
+                DialogResult = DialogResult.OK;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is OverflowException)
+            {
+                MessageBox.Show(this, ex.Message, "字段信息无效", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
     }
