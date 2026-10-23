@@ -31,11 +31,8 @@ namespace GIS.Display.Demo
                 TopLevel = false, FormBorderStyle = FormBorderStyle.None, Dock = DockStyle.Fill
             };
             attributeTables[layer] = table;
-            table.FeatureSelected += feature => {
-                var selection = new Features();
-                selection.Add(feature);
+            table.SelectionRequested += selection =>
                 Map.SetSelection(layer, selection, SelectMethodConstant.CreateNew);
-            };
             table.EditRequested += feature => EditAttributeTableFeature(layer, feature);
             table.SaveEditsRequested += SavePendingEdits;
             table.FormClosed += (sender, args) => {
