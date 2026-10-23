@@ -27,6 +27,9 @@ namespace GIS.Display
         private ScreenPoint dragStart, dragCurrent, lastPanPoint;
         private double startX, startY, startScale;
         private MapInteractionMode dragMode;
+        private readonly Timer selectionFlashTimer = new Timer { Interval = 140 };
+        private bool showSelectionHighlight = true;
+        private int remainingFlashTransitions;
 
         public MapControl()
         {
@@ -37,6 +40,7 @@ namespace GIS.Display
             Cursor = Cursors.Hand;
             Size = new Size(800, 600);
             transform.UpdateWindowSize(Width, Height);
+            selectionFlashTimer.Tick += SelectionFlashTick;
         }
 
         // 索引0在最底部；返回只读集合，防止绕过事件直接改顺序。
@@ -160,12 +164,14 @@ namespace GIS.Display
             }
             SelectTools.ExcuteSelect(selections[layer], valid, method);
             SelectionChanged?.Invoke(this, EventArgs.Empty);
+            StartSelectionFlash();
             Invalidate();
         }
 
         public void ClearSelection()
         {
             foreach (Features features in selections.Values) features.Clear();
+            StopSelectionFlash();
             SelectionChanged?.Invoke(this, EventArgs.Empty);
             Invalidate();
         }
@@ -197,6 +203,7 @@ namespace GIS.Display
                 SelectTools.ExcuteSelect(selections[layer], search(layer.FeatureClass), method);
             }
             SelectionChanged?.Invoke(this, EventArgs.Empty);
+            StartSelectionFlash();
             Invalidate();
         }
 
@@ -295,11 +302,12 @@ namespace GIS.Display
                 }
             }
             // 高亮叠加在所有普通图层之上。
-            foreach (Layer layer in layers.Where(l => l.Visible))
-                foreach (Feature feature in selections[layer])
-                    if (feature.Geometry != null)
-                        BasicGeometryDrawer.DrawGeometry(e.Graphics, feature.Geometry,
-                            BasicGeometryDrawer.HighlightSymbol(feature.Geometry), transform);
+            if (showSelectionHighlight)
+                foreach (Layer layer in layers.Where(l => l.Visible))
+                    foreach (Feature feature in selections[layer])
+                        if (feature.Geometry != null)
+                            BasicGeometryDrawer.DrawGeometry(e.Graphics, feature.Geometry,
+                                BasicGeometryDrawer.HighlightSymbol(feature.Geometry), transform);
             var overlayState = e.Graphics.Save();
             try { OverlayPaint?.Invoke(this, new MapOverlayEventArgs(e.Graphics, transform)); }
             finally { e.Graphics.Restore(overlayState); }
@@ -405,6 +413,36 @@ namespace GIS.Display
         {
             if (layer == null || !selections.ContainsKey(layer))
                 throw new ArgumentException("图层尚未加入此地图。", nameof(layer));
+        }
+        private void StartSelectionFlash()
+        {
+            if (!selections.Values.Any(features => features.Count > 0)) { StopSelectionFlash(); return; }
+            selectionFlashTimer.Stop();
+            showSelectionHighlight = true;
+            remainingFlashTransitions = 4;
+            selectionFlashTimer.Start();
+        }
+        private void StopSelectionFlash()
+        {
+            selectionFlashTimer.Stop();
+            remainingFlashTransitions = 0;
+            showSelectionHighlight = true;
+        }
+        private void SelectionFlashTick(object sender, EventArgs e)
+        {
+            showSelectionHighlight = !showSelectionHighlight;
+            remainingFlashTransitions--;
+            if (remainingFlashTransitions <= 0)
+            {
+                selectionFlashTimer.Stop();
+                showSelectionHighlight = true;
+            }
+            Invalidate();
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) selectionFlashTimer.Dispose();
+            base.Dispose(disposing);
         }
         private void NotifyViewChanged()
         {

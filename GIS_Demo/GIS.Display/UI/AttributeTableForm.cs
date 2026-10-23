@@ -15,6 +15,7 @@ namespace GIS.Display.UI
         private bool showSelectedOnly;
         private bool syncingSelection;
         private bool selectionOriginatedFromGrid;
+        private bool initialDisplayComplete;
         private string sortColumnName;
         private ListSortDirection? sortDirection;
         private int contextColumnIndex = -1;
@@ -126,6 +127,7 @@ namespace GIS.Display.UI
             };
             Controls.Add(grid); Controls.Add(status); Controls.Add(tools);
             ReloadRows(); FitColumns();
+            Shown += (s,e) => ClearAutomaticFirstRowSelection();
             if (map != null) { map.SelectionChanged += MapSelectionChanged; map.LayersChanged += MapLayersChanged; }
             DialogLayout.Apply(this);
         }
@@ -152,12 +154,25 @@ namespace GIS.Display.UI
                 ApplyCurrentSort();
                 foreach (DataGridViewRow row in grid.Rows)
                     if (ReferenceEquals(row.Tag, current)) { grid.CurrentCell = row.Cells[0]; break; }
+                if (current == null) grid.CurrentCell = null;
                 grid.ClearSelection();
                 if (first >= 0 && first < grid.Rows.Count) grid.FirstDisplayedScrollingRowIndex = first;
                 grid.HorizontalScrollingOffset = horizontal;
             }
             finally { syncingSelection = false; }
             HighlightSelection();
+        }
+        private void ClearAutomaticFirstRowSelection()
+        {
+            syncingSelection = true;
+            try
+            {
+                grid.CurrentCell = null;
+                grid.ClearSelection();
+            }
+            finally { syncingSelection = false; }
+            HighlightSelection();
+            initialDisplayComplete = true;
         }
         private void FitColumns()
         {
@@ -190,7 +205,7 @@ namespace GIS.Display.UI
         }
         private void GridSelectionChanged()
         {
-            if (syncingSelection) return;
+            if (syncingSelection || !initialDisplayComplete) return;
             var features = new Features();
             foreach (DataGridViewRow row in grid.SelectedRows)
                 if (row.Tag is Feature feature) features.Add(feature);
