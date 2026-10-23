@@ -160,12 +160,12 @@ namespace GIS.Display.Demo
                 "地图操作帮助", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void ConfigureMainContentSplitter()
+        private void ConfigureMainContentSplitter(bool force = false)
         {
-            if (mainContent == null || mainContent.Width < 950) return;
+            if (mainContent == null || mainContent.Width < 1000) return;
             mainContent.Panel1MinSize = 650;
             mainContent.Panel2MinSize = 300;
-            if (mainContentSplitterInitialized) return;
+            if (mainContentSplitterInitialized && !force) return;
 
             // 给连接项和三枚操作按钮保留足够宽度；窗口全屏时不再按比例放大。
             int distance = mainContent.Width - DefaultPostGISPanelWidth;
@@ -296,7 +296,10 @@ namespace GIS.Display.Demo
         {
             mainContent.Panel2Collapsed = !mainContent.Panel2Collapsed;
             if (!mainContent.Panel2Collapsed)
+            {
+                ConfigureMainContentSplitter(true);
                 postGISDataSourcePanel.BringToFront();
+            }
         }
 
         private void ExportToPostGIS()
@@ -310,6 +313,7 @@ namespace GIS.Display.Demo
             if (postGISDataSourcePanel.Connection == null)
             {
                 mainContent.Panel2Collapsed = false;
+                ConfigureMainContentSplitter(true);
                 postGISDataSourcePanel.BringToFront();
                 MessageBox.Show(this, "请先在右侧 PostGIS 数据源面板连接数据库。", "上传 PostGIS",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);

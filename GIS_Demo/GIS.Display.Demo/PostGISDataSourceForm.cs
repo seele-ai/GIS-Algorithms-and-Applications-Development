@@ -59,19 +59,39 @@ namespace GIS.Display.Demo
 
         private void BuildLoadOptions()
         {
-            actions.Height = 98;
+            actions.SuspendLayout();
+            actions.Controls.Clear();
+            actions.ColumnCount = 2;
+            actions.ColumnStyles.Clear();
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            actions.Height = 104;
             actions.RowCount = 2;
             actions.RowStyles.Clear();
+            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 48F));
             actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
-            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
-            var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-            loadStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(4, 9, 8, 0) };
-            options.Controls.Add(loadStatus);
-            cancelLoad = new Button { Text = "取消加载", Enabled = false, AutoSize = true, Margin = new Padding(6, 2, 0, 0) };
+
+            connect.Dock = DockStyle.Fill;
+            add.Dock = DockStyle.Fill;
+            actions.Controls.Add(connect, 0, 0);
+            actions.Controls.Add(add, 1, 0);
+
+            loadStatus = new Label { Text = "", Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(6, 4, 4, 4) };
+            actions.Controls.Add(loadStatus, 0, 1);
+            var secondaryActions = new FlowLayoutPanel { Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = new Padding(0) };
+            close.AutoSize = true;
+            close.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            close.Dock = DockStyle.None;
+            close.Margin = new Padding(4);
+            cancelLoad = new Button { Text = "取消加载", Enabled = false, Visible = false,
+                AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(4) };
             cancelLoad.Click += (s, e) => { if (CancelLoadRequested != null) CancelLoadRequested(this, EventArgs.Empty); };
-            options.Controls.Add(cancelLoad);
-            actions.Controls.Add(options, 0, 1);
-            actions.SetColumnSpan(options, 3);
+            secondaryActions.Controls.Add(close);
+            secondaryActions.Controls.Add(cancelLoad);
+            actions.Controls.Add(secondaryActions, 1, 1);
+            actions.ResumeLayout();
         }
 
         private void ConnectionSettingsChanged(object sender, EventArgs e)
@@ -84,6 +104,7 @@ namespace GIS.Display.Demo
         {
             add.Enabled = connect.Enabled = tables.Enabled = false;
             cancelLoad.Enabled = true;
+            cancelLoad.Visible = true;
             loadStatus.Text = "正在读取…";
         }
 
@@ -102,6 +123,7 @@ namespace GIS.Display.Demo
             connect.Enabled = tables.Enabled = true;
             add.Enabled = tables.Items.Count > 0;
             cancelLoad.Enabled = false;
+            cancelLoad.Visible = false;
         }
 
         private void BrowseTables()
