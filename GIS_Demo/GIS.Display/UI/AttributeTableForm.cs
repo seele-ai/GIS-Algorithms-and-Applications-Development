@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
@@ -13,6 +14,7 @@ namespace GIS.Display.UI
         private readonly MapControl map;
         private bool showSelectedOnly;
         private bool syncingSelection;
+        private bool selectionOriginatedFromGrid;
         private string sortColumnName;
         private ListSortDirection? sortDirection;
         private int contextColumnIndex = -1;
@@ -124,7 +126,6 @@ namespace GIS.Display.UI
             };
             Controls.Add(grid); Controls.Add(status); Controls.Add(tools);
             ReloadRows(); FitColumns();
-            Activated += (s,e) => ReloadRows();
             if (map != null) { map.SelectionChanged += MapSelectionChanged; map.LayersChanged += MapLayersChanged; }
             DialogLayout.Apply(this);
         }
@@ -138,7 +139,7 @@ namespace GIS.Display.UI
             {
                 grid.Rows.Clear();
                 var selected = showSelectedOnly && map != null && map.Layers.Contains(layer)
-                    ? map.GetSelection(layer).ToArray() : null;
+                    ? new HashSet<Feature>(map.GetSelection(layer)) : null;
                 foreach (Feature feature in layer.FeatureClass.Features)
                 {
                     if (showSelectedOnly && (selected == null || !selected.Contains(feature))) continue;
@@ -167,18 +168,22 @@ namespace GIS.Display.UI
         }
         private void MapSelectionChanged(object sender, EventArgs e)
         {
+            if (selectionOriginatedFromGrid && !showSelectedOnly) { UpdateRecordStatus(); return; }
             if (showSelectedOnly) ReloadRows(); else HighlightSelection();
         }
         private void MapLayersChanged(object sender, EventArgs e) { if (!map.Layers.Contains(layer)) Close(); }
         private void HighlightSelection()
         {
-            var selected = map != null && map.Layers.Contains(layer) ? map.GetSelection(layer).ToArray() : new Feature[0];
+            var selected = map != null && map.Layers.Contains(layer)
+                ? new HashSet<Feature>(map.GetSelection(layer)) : new HashSet<Feature>();
             syncingSelection = true;
             try
             {
-                grid.ClearSelection();
                 foreach (DataGridViewRow row in grid.Rows)
-                    row.Selected = selected.Contains((Feature)row.Tag);
+                {
+                    bool shouldSelect = selected.Contains((Feature)row.Tag);
+                    if (row.Selected != shouldSelect) row.Selected = shouldSelect;
+                }
             }
             finally { syncingSelection = false; }
             UpdateRecordStatus();
@@ -189,7 +194,9 @@ namespace GIS.Display.UI
             var features = new Features();
             foreach (DataGridViewRow row in grid.SelectedRows)
                 if (row.Tag is Feature feature) features.Add(feature);
-            RequestSelection(features);
+            selectionOriginatedFromGrid = true;
+            try { RequestSelection(features); }
+            finally { selectionOriginatedFromGrid = false; }
         }
         private void RequestSelection(Features features)
         {
@@ -216,7 +223,7 @@ namespace GIS.Display.UI
         {
             if (e.Button != MouseButtons.Right || e.RowIndex != -1 || e.ColumnIndex < 0) return;
             contextColumnIndex = e.ColumnIndex;
-            columnMenu.Show(grid, new System.Drawing.Point(e.X, e.Y));
+            columnMenu.Show(Cursor.Position);
         }
         private void SetSort(int columnIndex, ListSortDirection direction)
         {

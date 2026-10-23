@@ -101,10 +101,11 @@ namespace GIS
         /// </summary>
         public void Union(Features features)
         {
+            var existing = new HashSet<Feature>(_Items);
             for (Int32 i = 0; i <= features.Count - 1; i++)
             {
-                if (_Items.Contains(features.GetItem(i)) == false)
-                    _Items.Add(features.GetItem(i));
+                Feature feature = features.GetItem(i);
+                if (existing.Add(feature)) _Items.Add(feature);
             }
         }
 
@@ -113,10 +114,8 @@ namespace GIS
         /// </summary>
         public void Except(Features features)
         {
-            for (Int32 i = 0; i <= features.Count - 1; i++)
-            {
-                _Items.Remove(features.GetItem(i));
-            }
+            var removed = new HashSet<Feature>(features);
+            _Items.RemoveAll(feature => removed.Contains(feature));
         }
 
         /// <summary>
@@ -124,25 +123,8 @@ namespace GIS
         /// </summary>
         public void Intersect(Features features)
         {
-            List<Feature> sRemain = new List<Feature>();
-            for (Int32 i = 0; i <= _Items.Count - 1; i++)
-            {
-                if (features.ContainsByReference(_Items[i]) == true)
-                    sRemain.Add(_Items[i]);
-            }
-            _Items.Clear();
-            _Items.AddRange(sRemain);
-        }
-
-        //判断集合中是否包含指定要素（按引用比较）
-        private bool ContainsByReference(Feature feature)
-        {
-            for (Int32 i = 0; i <= _Items.Count - 1; i++)
-            {
-                if (object.ReferenceEquals(_Items[i], feature) == true)
-                    return true;
-            }
-            return false;
+            var retained = new HashSet<Feature>(features);
+            _Items.RemoveAll(feature => !retained.Contains(feature));
         }
 
         #endregion

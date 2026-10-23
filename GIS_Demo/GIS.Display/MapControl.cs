@@ -153,8 +153,11 @@ namespace GIS.Display
             if (features == null) throw new ArgumentNullException(nameof(features));
             var valid = new Features();
             if (layer.Visible && IsLayerSelectable(layer))
+            {
+                var layerFeatures = new HashSet<Feature>(layer.FeatureClass.Features);
                 foreach (Feature feature in features)
-                    if (layer.FeatureClass.Features.Contains(feature)) valid.Add(feature);
+                    if (layerFeatures.Contains(feature)) valid.Add(feature);
+            }
             SelectTools.ExcuteSelect(selections[layer], valid, method);
             SelectionChanged?.Invoke(this, EventArgs.Empty);
             Invalidate();
