@@ -261,8 +261,8 @@ namespace GIS.Display
         public static Symbol HighlightSymbol(Geometry geometry)
         {
             if (geometry is Point || geometry is MultiPoint)
-                return new SimpleMarkerSymbol { Color = Color.Transparent, OutlineColor = Color.DeepPink,
-                    OutlineWidth = 0.7, Size = 4.5, Style = SimpleMarkerSymbolStyleConstant.Circle };
+                return new SimpleMarkerSymbol { Color = Color.DeepPink, OutlineColor = Color.Transparent,
+                    OutlineWidth = 0, Size = 4.5, Style = SimpleMarkerSymbolStyleConstant.Circle };
             if (geometry is LineString || geometry is MultiLineString)
                 return new SimpleLineSymbol { Color = Color.DeepPink, Size = 1 };
             return new SimpleFillSymbol
