@@ -13,7 +13,7 @@ namespace GIS.Display.Demo
     public sealed partial class PostGISDataSourceForm : UserControl
     {
         private TextBox host;
-        private NumericUpDown port;
+        private TextBox port;
         private TextBox database;
         private TextBox username;
         private TextBox password;
@@ -37,16 +37,14 @@ namespace GIS.Display.Demo
         public PostGISDataSourceForm()
         {
             InitializeComponent();
-            foreach (TextBox input in new[] { host, database, username, password })
+            foreach (TextBox input in new[] { host, port, database, username, password })
             {
                 input.AutoSize = false;
                 input.MinimumSize = new Size(0, 30);
             }
-            port.AutoSize = false;
-            port.MinimumSize = new Size(0, 30);
             BuildLoadOptions();
             host.TextChanged += ConnectionSettingsChanged;
-            port.ValueChanged += ConnectionSettingsChanged;
+            port.TextChanged += ConnectionSettingsChanged;
             database.TextChanged += ConnectionSettingsChanged;
             username.TextChanged += ConnectionSettingsChanged;
             password.TextChanged += ConnectionSettingsChanged;
@@ -105,6 +103,7 @@ namespace GIS.Display.Demo
             add.Enabled = connect.Enabled = tables.Enabled = false;
             cancelLoad.Enabled = true;
             cancelLoad.Visible = true;
+            close.Visible = false;
             loadStatus.Text = "正在读取…";
         }
 
@@ -124,6 +123,7 @@ namespace GIS.Display.Demo
             add.Enabled = tables.Items.Count > 0;
             cancelLoad.Enabled = false;
             cancelLoad.Visible = false;
+            close.Visible = true;
         }
 
         private void BrowseTables()
@@ -134,7 +134,10 @@ namespace GIS.Display.Demo
                 bool sameConnection = connection != null && signature == connectionSignature;
                 if (!sameConnection)
                 {
-                    connection = new PostGISConnection(host.Text.Trim(), (int)port.Value,
+                    int portNumber;
+                    if (!int.TryParse(port.Text.Trim(), out portNumber) || portNumber < 1 || portNumber > 65535)
+                        throw new ArgumentException("端口必须是 1 到 65535 之间的整数。");
+                    connection = new PostGISConnection(host.Text.Trim(), portNumber,
                         database.Text.Trim(), username.Text.Trim(), password.Text);
                     connectionSignature = signature;
                     tableListLoaded = false;
@@ -176,7 +179,7 @@ namespace GIS.Display.Demo
 
         private string BuildConnectionSignature()
         {
-            return host.Text.Trim() + "|" + port.Value + "|" + database.Text.Trim() + "|" +
+            return host.Text.Trim() + "|" + port.Text.Trim() + "|" + database.Text.Trim() + "|" +
                 username.Text.Trim() + "|" + password.Text;
         }
     }

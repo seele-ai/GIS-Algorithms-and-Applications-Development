@@ -21,7 +21,7 @@ namespace GIS.Display.Demo
             this.usernameLabel = new System.Windows.Forms.Label();
             this.passwordLabel = new System.Windows.Forms.Label();
             this.host = new System.Windows.Forms.TextBox();
-            this.port = new System.Windows.Forms.NumericUpDown();
+            this.port = new System.Windows.Forms.TextBox();
             this.database = new System.Windows.Forms.TextBox();
             this.username = new System.Windows.Forms.TextBox();
             this.password = new System.Windows.Forms.TextBox();
@@ -31,7 +31,6 @@ namespace GIS.Display.Demo
             this.add = new System.Windows.Forms.Button();
             this.close = new System.Windows.Forms.Button();
             this.fields.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.port)).BeginInit();
             this.actions.SuspendLayout();
             this.SuspendLayout();
             //
@@ -139,24 +138,10 @@ namespace GIS.Display.Demo
             //
             this.port.Dock = System.Windows.Forms.DockStyle.Fill;
             this.port.Location = new System.Drawing.Point(83, 36);
-            this.port.Maximum = new decimal(new int[] {
-            65535,
-            0,
-            0,
-            0});
-            this.port.Minimum = new decimal(new int[] {
-            1,
-            0,
-            0,
-            0});
             this.port.Name = "port";
             this.port.Size = new System.Drawing.Size(1797, 28);
             this.port.TabIndex = 6;
-            this.port.Value = new decimal(new int[] {
-            5432,
-            0,
-            0,
-            0});
+            this.port.Text = "5432";
             //
             // database
             //
@@ -253,13 +238,12 @@ namespace GIS.Display.Demo
             this.Controls.Add(this.actions);
             this.Controls.Add(this.fields);
             this.Controls.Add(this.title);
-            this.MinimumSize = new System.Drawing.Size(360, 420);
+            this.MinimumSize = new System.Drawing.Size(0, 420);
             this.Name = "PostGISDataSourceForm";
             this.Size = new System.Drawing.Size(380, 430);
             this.Dock = System.Windows.Forms.DockStyle.Fill;
             this.fields.ResumeLayout(false);
             this.fields.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.port)).EndInit();
             this.actions.ResumeLayout(false);
             this.ResumeLayout(false);
 
