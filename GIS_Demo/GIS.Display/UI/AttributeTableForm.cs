@@ -15,6 +15,8 @@ namespace GIS.Display.UI
         private bool syncingSelection;
         private string sortColumnName;
         private ListSortDirection? sortDirection;
+        private int contextColumnIndex = -1;
+        private readonly ContextMenuStrip columnMenu = new ContextMenuStrip();
         private readonly DataGridView grid = new DataGridView
         {
             Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
@@ -90,8 +92,29 @@ namespace GIS.Display.UI
             tools.Items.Add(save);
             var status = new StatusStrip { SizingGrip = false, BackColor = Color.FromArgb(248, 249, 251) };
             status.Items.Add(recordStatus);
+            var sortAscending = new ToolStripMenuItem("升序排列");
+            var sortDescending = new ToolStripMenuItem("降序排列");
+            var clearSort = new ToolStripMenuItem("清除排序");
+            var fitThisColumn = new ToolStripMenuItem("适应该列宽");
+            sortAscending.Click += (s,e) => SetSort(contextColumnIndex, ListSortDirection.Ascending);
+            sortDescending.Click += (s,e) => SetSort(contextColumnIndex, ListSortDirection.Descending);
+            clearSort.Click += (s,e) => ClearSort();
+            fitThisColumn.Click += (s,e) => FitColumn(contextColumnIndex);
+            columnMenu.Items.Add(sortAscending);
+            columnMenu.Items.Add(sortDescending);
+            columnMenu.Items.Add(new ToolStripSeparator());
+            columnMenu.Items.Add(clearSort);
+            columnMenu.Items.Add(new ToolStripSeparator());
+            columnMenu.Items.Add(fitThisColumn);
+            columnMenu.Opening += (s,e) => {
+                if (contextColumnIndex < 0 || contextColumnIndex >= grid.Columns.Count) { e.Cancel = true; return; }
+                string columnName = grid.Columns[contextColumnIndex].Name;
+                sortAscending.Checked = sortColumnName == columnName && sortDirection == ListSortDirection.Ascending;
+                sortDescending.Checked = sortColumnName == columnName && sortDirection == ListSortDirection.Descending;
+                clearSort.Enabled = sortDirection.HasValue;
+            };
             grid.SelectionChanged += (s,e) => GridSelectionChanged();
-            grid.ColumnHeaderMouseClick += (s,e) => SortByColumn(e.ColumnIndex);
+            grid.CellMouseDown += ShowColumnMenu;
             grid.RowPostPaint += DrawRowNumber;
             grid.CellDoubleClick += (s,e) => {
                 if (e.RowIndex < 0) return;
@@ -189,17 +212,33 @@ namespace GIS.Display.UI
                 grid.Rows.Count, layer.FeatureClass.Features.Count, selectedCount);
             zoomToSelection.Enabled = selectedCount > 0;
         }
-        private void SortByColumn(int columnIndex)
+        private void ShowColumnMenu(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right || e.RowIndex != -1 || e.ColumnIndex < 0) return;
+            contextColumnIndex = e.ColumnIndex;
+            columnMenu.Show(grid, new System.Drawing.Point(e.X, e.Y));
+        }
+        private void SetSort(int columnIndex, ListSortDirection direction)
         {
             if (columnIndex < 0 || columnIndex >= grid.Columns.Count) return;
-            DataGridViewColumn column = grid.Columns[columnIndex];
-            sortDirection = sortColumnName == column.Name && sortDirection == ListSortDirection.Ascending
-                ? ListSortDirection.Descending : ListSortDirection.Ascending;
-            sortColumnName = column.Name;
+            sortColumnName = grid.Columns[columnIndex].Name;
+            sortDirection = direction;
             syncingSelection = true;
             try { ApplyCurrentSort(); }
             finally { syncingSelection = false; }
             HighlightSelection();
+        }
+        private void ClearSort()
+        {
+            sortColumnName = null;
+            sortDirection = null;
+            ReloadRows();
+        }
+        private void FitColumn(int columnIndex)
+        {
+            if (columnIndex < 0 || columnIndex >= grid.Columns.Count) return;
+            grid.AutoResizeColumn(columnIndex, DataGridViewAutoSizeColumnMode.DisplayedCells);
+            grid.Columns[columnIndex].Width = Math.Max(90, Math.Min(grid.Columns[columnIndex].Width, 300));
         }
         private void ApplyCurrentSort()
         {
@@ -222,7 +261,11 @@ namespace GIS.Display.UI
         }
         protected override void Dispose(bool disposing)
         {
-            if (disposing && map != null) { map.SelectionChanged -= MapSelectionChanged; map.LayersChanged -= MapLayersChanged; }
+            if (disposing)
+            {
+                columnMenu.Dispose();
+                if (map != null) { map.SelectionChanged -= MapSelectionChanged; map.LayersChanged -= MapLayersChanged; }
+            }
             base.Dispose(disposing);
         }
     }
