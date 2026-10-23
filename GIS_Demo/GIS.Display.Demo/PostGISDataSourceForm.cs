@@ -37,7 +37,19 @@ namespace GIS.Display.Demo
         public PostGISDataSourceForm()
         {
             InitializeComponent();
+            foreach (TextBox input in new[] { host, database, username, password })
+            {
+                input.AutoSize = false;
+                input.MinimumSize = new Size(0, 30);
+            }
+            port.AutoSize = false;
+            port.MinimumSize = new Size(0, 30);
             BuildLoadOptions();
+            host.TextChanged += ConnectionSettingsChanged;
+            port.ValueChanged += ConnectionSettingsChanged;
+            database.TextChanged += ConnectionSettingsChanged;
+            username.TextChanged += ConnectionSettingsChanged;
+            password.TextChanged += ConnectionSettingsChanged;
             connect.Click += (s, e) => BrowseTables();
             add.Click += (s, e) => SelectTable();
             close.Click += (s, e) => { if (CloseRequested != null) CloseRequested(this, EventArgs.Empty); };
@@ -47,19 +59,25 @@ namespace GIS.Display.Demo
 
         private void BuildLoadOptions()
         {
-            actions.Height = 82;
+            actions.Height = 98;
             actions.RowCount = 2;
             actions.RowStyles.Clear();
-            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
-            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
+            actions.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
             var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-            loadStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(2, 7, 8, 0) };
+            loadStatus = new Label { Text = "", AutoSize = true, Margin = new Padding(4, 9, 8, 0) };
             options.Controls.Add(loadStatus);
-            cancelLoad = new Button { Text = "取消", Enabled = false, Width = 56, Height = 25, Margin = new Padding(5, 1, 0, 0) };
+            cancelLoad = new Button { Text = "取消加载", Enabled = false, AutoSize = true, Margin = new Padding(6, 2, 0, 0) };
             cancelLoad.Click += (s, e) => { if (CancelLoadRequested != null) CancelLoadRequested(this, EventArgs.Empty); };
             options.Controls.Add(cancelLoad);
             actions.Controls.Add(options, 0, 1);
             actions.SetColumnSpan(options, 3);
+        }
+
+        private void ConnectionSettingsChanged(object sender, EventArgs e)
+        {
+            if (connection == null || BuildConnectionSignature() != connectionSignature)
+                connect.Text = "连接数据库";
         }
 
         public void BeginLayerLoading()
@@ -107,7 +125,7 @@ namespace GIS.Display.Demo
                 add.Enabled = items.Count > 0;
                 tableListLoaded = true;
                 Text = version == null ? "PostGIS 数据源（已连接）" : "PostGIS 数据源（PostGIS " + version + "）";
-                connect.Text = sameConnection ? "刷新表列表" : "测试连接并浏览表";
+                connect.Text = "刷新列表";
                 if (items.Count > 0) tables.SelectedIndex = 0;
                 MessageBox.Show(this, (sameConnection ? "已复用当前连接配置。" : "连接成功。") +
                     "\r\n共发现 " + items.Count + " 张空间表。", "PostGIS", MessageBoxButtons.OK, MessageBoxIcon.Information);

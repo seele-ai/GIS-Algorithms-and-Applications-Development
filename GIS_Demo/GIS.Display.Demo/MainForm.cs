@@ -16,7 +16,7 @@ namespace GIS.Display.Demo
     {
         // 1度约111.32km（按纬度折算），用于把经纬度换算为地图比例尺所需的米
         private const double MetersPerDegree = 111320.0;
-        private const int DefaultPostGISPanelWidth = 320;
+        private const int DefaultPostGISPanelWidth = 420;
 
         public FeatureCreationMap Map { get; } = new FeatureCreationMap { Dock = DockStyle.Fill };
         private readonly LayerManagerControl layerManager = new LayerManagerControl { Dock = DockStyle.Fill };
@@ -167,7 +167,7 @@ namespace GIS.Display.Demo
             mainContent.Panel2MinSize = 300;
             if (mainContentSplitterInitialized) return;
 
-            // 默认只给右侧数据源面板约 320 像素；窗口全屏时不再按比例放大。
+            // 给连接项和三枚操作按钮保留足够宽度；窗口全屏时不再按比例放大。
             int distance = mainContent.Width - DefaultPostGISPanelWidth;
             mainContent.SplitterDistance = Math.Max(mainContent.Panel1MinSize,
                 Math.Min(distance, mainContent.Width - mainContent.Panel2MinSize));

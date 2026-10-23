@@ -51,7 +51,7 @@ namespace GIS.Display.Demo
             // fields
             //
             this.fields.ColumnCount = 2;
-            this.fields.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 72F));
+            this.fields.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 86F));
             this.fields.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
             this.fields.Controls.Add(this.hostLabel, 0, 0);
             this.fields.Controls.Add(this.portLabel, 0, 1);
@@ -66,14 +66,14 @@ namespace GIS.Display.Demo
             this.fields.Dock = System.Windows.Forms.DockStyle.Top;
             this.fields.Location = new System.Drawing.Point(0, 32);
             this.fields.Name = "fields";
-            this.fields.Padding = new System.Windows.Forms.Padding(8, 6, 8, 4);
+            this.fields.Padding = new System.Windows.Forms.Padding(12, 10, 12, 8);
             this.fields.RowCount = 5;
-            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 27F));
-            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 27F));
-            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 27F));
-            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 27F));
-            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 27F));
-            this.fields.Size = new System.Drawing.Size(1891, 150);
+            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.fields.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 40F));
+            this.fields.Size = new System.Drawing.Size(1891, 218);
             this.fields.TabIndex = 2;
             //
             // hostLabel
@@ -221,7 +221,7 @@ namespace GIS.Display.Demo
             this.connect.Name = "connect";
             this.connect.Size = new System.Drawing.Size(622, 32);
             this.connect.TabIndex = 0;
-            this.connect.Text = "连接 / 刷新";
+            this.connect.Text = "连接数据库";
             //
             // add
             //
@@ -232,7 +232,7 @@ namespace GIS.Display.Demo
             this.add.Name = "add";
             this.add.Size = new System.Drawing.Size(622, 32);
             this.add.TabIndex = 1;
-            this.add.Text = "添加图层";
+            this.add.Text = "加载到地图";
             //
             // close
             //
@@ -242,18 +242,18 @@ namespace GIS.Display.Demo
             this.close.Name = "close";
             this.close.Size = new System.Drawing.Size(623, 32);
             this.close.TabIndex = 2;
-            this.close.Text = "关闭";
+            this.close.Text = "收起面板";
             //
             // PostGISDataSourceForm
             //
-            this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 18F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.ClientSize = new System.Drawing.Size(1891, 728);
             this.Controls.Add(this.tables);
             this.Controls.Add(this.actions);
             this.Controls.Add(this.fields);
             this.Controls.Add(this.title);
-            this.MinimumSize = new System.Drawing.Size(300, 360);
+            this.MinimumSize = new System.Drawing.Size(360, 420);
             this.Name = "PostGISDataSourceForm";
             this.Size = new System.Drawing.Size(380, 430);
             this.Dock = System.Windows.Forms.DockStyle.Fill;
