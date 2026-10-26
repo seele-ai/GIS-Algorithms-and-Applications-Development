@@ -122,7 +122,7 @@ namespace GIS.Display.Demo
             existingFields = fields;
             Text = "添加字段";
             Font = new Font("Microsoft YaHei UI", 10F);
-            ClientSize = new Size(520, 300);
+            ClientSize = new Size(520, 250);
             MinimumSize = Size;
             StartPosition = FormStartPosition.CenterParent;
 
@@ -138,24 +138,18 @@ namespace GIS.Display.Demo
             fieldType.SelectedIndex = 0;
 
             var form = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5,
+                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4,
                 Padding = new Padding(18, 16, 18, 8)
             };
             form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
             form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < 4; i++) form.RowStyles.Add(new RowStyle(SizeType.Absolute, 43));
-            form.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             AddRow(form, 0, "字段名称", fieldName);
             AddRow(form, 1, "显示别名", alias);
             AddRow(form, 2, "字段类型", fieldType);
             AddRow(form, 3, "默认值", defaultValue);
-            form.Controls.Add(new Label {
-                Text = "默认值留空时写入 NULL。日期格式为 yyyy-MM-dd，布尔值填写 true 或 false。\r\n新字段先保存在当前图层内存中，导出文件或上传 PostGIS 后可持久保存。",
-                AutoSize = false, Dock = DockStyle.Fill, ForeColor = Color.FromArgb(90, 90, 90), Padding = new Padding(0, 6, 0, 0)
-            }, 0, 4);
-            form.SetColumnSpan(form.GetControlFromPosition(0, 4), 2);
 
-            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
+            var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8), WrapContents = false };
             var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
             var ok = new Button { Text = "添加", AutoSize = true };
             ok.Click += Confirm;

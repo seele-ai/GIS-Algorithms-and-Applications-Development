@@ -16,56 +16,81 @@ namespace GIS.Display.Demo
         private readonly ComboBox layers = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Name", Dock = DockStyle.Fill };
         private readonly TextBox schema = new TextBox { Text = PostGISSchemaMapper.DefaultSchemaName, Dock = DockStyle.Fill };
         private readonly TextBox table = new TextBox { Dock = DockStyle.Fill };
-        private readonly NumericUpDown targetSrid = new NumericUpDown { Minimum = 1, Maximum = 999999, Value = 4326, Dock = DockStyle.Fill };
+        private readonly ComboBox targetSrid = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ComboBox mode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ProgressBar progress = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0 };
         private readonly Label status = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Text = "等待上传" };
-        private readonly Button export = new Button { Text = "开始上传", Width = 100, Height = 30 };
-        private readonly Button cancel = new Button { Text = "关闭", Width = 90, Height = 30 };
+        private readonly Button export = new Button
+        {
+            Text = "上传",
+            AutoSize = false,
+            Size = new Size(104, 32),
+            MinimumSize = new Size(104, 32)
+        };
+        private readonly Button cancel = new Button
+        {
+            Text = "取消",
+            AutoSize = false,
+            Size = new Size(116, 32),
+            MinimumSize = new Size(116, 32)
+        };
         private CancellationTokenSource cancellation;
 
         public PostGISExportForm(PostGISConnection connection, IEnumerable<Layer> mapLayers)
         {
             this.connection = connection ?? throw new ArgumentNullException(nameof(connection));
             Text = "上传图层到 PostGIS";
-            Font = new Font("Microsoft YaHei UI", 9F);
-            ClientSize = new Size(500, 330);
-            MinimumSize = new Size(500, 330);
+            Font = new Font("Microsoft YaHei UI", 10F);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(540, 360);
+            MinimumSize = new Size(540, 360);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
 
-            mode.Items.AddRange(new object[] { "新建表（同名时报错）", "覆盖同名表", "追加到已有表" });
+            targetSrid.Items.AddRange(new object[]
+            {
+                new CoordinateSystemOption("WGS 84（EPSG:4326，推荐）", 4326),
+                new CoordinateSystemOption("Web Mercator（EPSG:3857）", 3857),
+                new CoordinateSystemOption("CGCS2000（EPSG:4490）", 4490)
+            });
+            targetSrid.SelectedIndex = 0;
+
+            mode.Items.AddRange(new object[] { "创建新表（已存在则提示）", "替换已有表", "向已有表追加数据" });
             mode.SelectedIndex = 0;
             foreach (Layer layer in mapLayers.Reverse()) layers.Items.Add(layer);
             layers.SelectedIndexChanged += (s, e) => SuggestTableName();
             if (layers.Items.Count > 0) layers.SelectedIndex = 0;
 
-            var fields = new TableLayoutPanel { Dock = DockStyle.Top, Height = 205, Padding = new Padding(14, 12, 14, 4), ColumnCount = 2, RowCount = 5 };
-            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+            var fields = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 12, 14, 4), ColumnCount = 2, RowCount = 5 };
+            fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 125));
             fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            for (int i = 0; i < 5; i++) fields.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
-            AddRow(fields, 0, "地图图层", layers);
+            for (int i = 0; i < 5; i++) fields.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+            AddRow(fields, 0, "上传图层", layers);
             AddRow(fields, 1, "Schema", schema);
-            AddRow(fields, 2, "目标表名", table);
-            AddRow(fields, 3, "目标 SRID", targetSrid);
-            AddRow(fields, 4, "写入方式", mode);
-
-            var note = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 43,
-                Padding = new Padding(14, 3, 14, 0),
-                Text = "上传使用图层保存的 WGS84 原始坐标；目标不是 EPSG:4326 时由 PostGIS 执行坐标转换。"
-            };
-            var progressPanel = new TableLayoutPanel { Dock = DockStyle.Top, Height = 32, Padding = new Padding(14, 3, 14, 3), ColumnCount = 2 };
+            AddRow(fields, 2, "数据表名", table);
+            AddRow(fields, 3, "存储坐标系", targetSrid);
+            AddRow(fields, 4, "同名表处理", mode);
+            var progressPanel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 4, 14, 4), ColumnCount = 2 };
             progressPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
             progressPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
             progressPanel.Controls.Add(progress, 0, 0);
             progressPanel.Controls.Add(status, 1, 0);
-            var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(14, 7, 14, 7), FlowDirection = FlowDirection.RightToLeft };
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(export);
+            var buttons = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(14, 7, 14, 7),
+                ColumnCount = 3,
+                RowCount = 1
+            };
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+            buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
+            buttons.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            export.Anchor = AnchorStyles.None;
+            cancel.Anchor = AnchorStyles.None;
+            buttons.Controls.Add(export, 1, 0);
+            buttons.Controls.Add(cancel, 2, 0);
             export.Click += async (s, e) => await ExportAsync();
             cancel.Click += (s, e) =>
             {
@@ -79,13 +104,24 @@ namespace GIS.Display.Demo
                 e.Cancel = true;
             };
 
-            Controls.Add(buttons);
-            Controls.Add(progressPanel);
-            Controls.Add(note);
-            Controls.Add(fields);
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));
+            content.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            content.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            content.Controls.Add(fields, 0, 0);
+            content.Controls.Add(progressPanel, 0, 1);
+            content.Controls.Add(buttons, 0, 2);
+            Controls.Add(content);
             AcceptButton = export;
             CancelButton = cancel;
-            GIS.Display.UI.DialogLayout.Apply(this);
         }
 
         private static void AddRow(TableLayoutPanel panel, int row, string text, Control control)
@@ -141,8 +177,11 @@ namespace GIS.Display.Demo
             });
             try
             {
+                CoordinateSystemOption coordinateSystem = targetSrid.SelectedItem as CoordinateSystemOption;
+                if (coordinateSystem == null)
+                    throw new InvalidOperationException("请选择存储坐标系。");
                 int written = await Task.Run(() => new PostGISExporter(connection).ExportFeatureClass(
-                    source, tableName, 4326, (int)targetSrid.Value, exportMode, schemaName,
+                    source, tableName, 4326, coordinateSystem.Srid, exportMode, schemaName,
                     cancellation.Token, report));
                 progress.Value = progress.Maximum;
                 status.Text = "上传完成";
@@ -174,7 +213,7 @@ namespace GIS.Display.Demo
         {
             layers.Enabled = schema.Enabled = table.Enabled = targetSrid.Enabled = mode.Enabled = !busy;
             export.Enabled = !busy;
-            cancel.Text = busy ? "取消上传" : "关闭";
+            cancel.Text = busy ? "取消上传" : "取消";
             progress.Maximum = Math.Max(1, featureCount);
             if (busy)
             {
@@ -208,6 +247,23 @@ namespace GIS.Display.Demo
                 result.Add(new Feature(geometry, new Attributes(result.Fields, values)));
             }
             return result;
+        }
+
+        private sealed class CoordinateSystemOption
+        {
+            public CoordinateSystemOption(string displayName, int srid)
+            {
+                DisplayName = displayName;
+                Srid = srid;
+            }
+
+            public string DisplayName { get; }
+            public int Srid { get; }
+
+            public override string ToString()
+            {
+                return DisplayName;
+            }
         }
     }
 }

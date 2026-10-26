@@ -31,6 +31,7 @@ namespace GIS.Display.Demo
         private SplitContainer workspaceSplit;
         private TabControl bottomTabs;
         private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
+        private SelectByAttributesForm selectByAttributesForm;
         private bool mainContentSplitterInitialized;
 
         private readonly ToolStrip editToolbar = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(6, 4, 6, 4) };
@@ -72,6 +73,7 @@ namespace GIS.Display.Demo
             toolbar.Items.Add(new ToolStripSeparator());
             AddMode("选择", MapInteractionMode.Select);
             AddAction("清空选择", () => Map.ClearSelection());
+            AddAction("按属性选择", ShowSelectByAttributes);
             AddAction("操作帮助", ShowOperationHelp);
             toolbar.Items.Add(new ToolStripSeparator());
             AddAction("导入要素", ImportShapefiles);
@@ -155,9 +157,24 @@ namespace GIS.Display.Demo
                 "滚轮：以鼠标为中心缩放\r\n" +
                 "中键拖动：平移地图\r\n" +
                 "选择工具：点选或拖框选择\r\n" +
+                "按属性选择：输入类似 SQL WHERE 的条件筛选当前图层\r\n" +
                 "Esc：取消本次拖动或草图操作\r\n" +
                 "高斯-克吕格 / UTM：切换投影后使用“选择分带”设置分带",
                 "地图操作帮助", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ShowSelectByAttributes()
+        {
+            if (selectByAttributesForm != null && !selectByAttributesForm.IsDisposed)
+            {
+                if (selectByAttributesForm.WindowState == FormWindowState.Minimized)
+                    selectByAttributesForm.WindowState = FormWindowState.Normal;
+                selectByAttributesForm.Activate();
+                return;
+            }
+            selectByAttributesForm = new SelectByAttributesForm(Map);
+            selectByAttributesForm.FormClosed += (s, e) => selectByAttributesForm = null;
+            selectByAttributesForm.Show(this);
         }
 
         private void ConfigureMainContentSplitter(bool force = false)
