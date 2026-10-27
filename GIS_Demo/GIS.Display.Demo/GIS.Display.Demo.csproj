@@ -10,6 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GIS.Display\GIS.Display.csproj" />
-    <ProjectReference Include="..\..\模块5_PostGIS交互_李雨晴\GIS.PostGIS\GIS.PostGIS.csproj" />
+    <ProjectReference Include="..\GIS.PostGIS\GIS.PostGIS.csproj" />
   </ItemGroup>
 </Project>

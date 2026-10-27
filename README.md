@@ -28,7 +28,7 @@ GIS_Demo\GIS.Display.Demo\bin\Release\net48\GIS.Display.Demo.exe
 GIS.sln
 ├── MapObjects/GIS/                         核心 GIS 类库
 ├── GIS_Demo/GIS.Display/                   地图显示与交互控件
-├── 模块5_PostGIS交互_李雨晴/GIS.PostGIS/   PostGIS 数据访问类库
+├── GIS_Demo/GIS.PostGIS/                    PostGIS 数据访问类库
 └── GIS_Demo/GIS.Display.Demo/              桌面主程序
 ```
 
@@ -65,7 +65,7 @@ PostGIS 图层读取时，程序会先读取空间字段、几何类型、坐标
 4. 点击“导出要素”保存为 Shapefile；连接 PostGIS 后可点击“上传 PostGIS”把图层写入数据库。
 5. PostGIS 图层在后台完整读取，读取过程中可查看进度或取消操作。
 
-PostGIS 数据源需要 PostgreSQL、PostGIS 扩展和有效的数据库连接参数。模块接口说明见 `模块5_PostGIS交互_李雨晴/README_PostGIS.md`。
+PostGIS 数据源需要 PostgreSQL、PostGIS 扩展和有效的数据库连接参数。模块接口说明见 `GIS_Demo/GIS.PostGIS/README_PostGIS.md`。
 
 ## 数据约定
 

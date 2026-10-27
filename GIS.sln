@@ -9,9 +9,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS.Display", "GIS_Demo\GIS
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS", "MapObjects\GIS\GIS.csproj", "{53B5FCF9-BB0E-4194-8485-53F86C94F659}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "模块5_PostGIS交互_李雨晴", "模块5_PostGIS交互_李雨晴", "{C8652AA4-198B-4F01-923F-E75E31D88ABE}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS.PostGIS", "模块5_PostGIS交互_李雨晴\GIS.PostGIS\GIS.PostGIS.csproj", "{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS.PostGIS", "GIS_Demo\GIS.PostGIS\GIS.PostGIS.csproj", "{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -74,9 +72,6 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A} = {C8652AA4-198B-4F01-923F-E75E31D88ABE}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D}

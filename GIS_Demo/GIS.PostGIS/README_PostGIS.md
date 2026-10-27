@@ -5,21 +5,22 @@
 ## 工程结构
 
 ```text
-模块5_PostGIS交互_李雨晴/
-└── GIS.PostGIS/
-    ├── PostGISConnection.cs
-    ├── PostGISSchemaMapper.cs
-    ├── PostGISColumnNames.cs
-    ├── PostGISExporter.cs
-    ├── PostGISExportMode.cs
-    ├── PostGISImporter.cs
-    ├── PostGISFeatureRecord.cs
-    ├── PostGISLayerSource.cs
-    ├── PostGISReadOnlyLayerContext.cs
-    ├── PostGISLayerContext.cs
-    ├── PostGISChangeSet.cs
-    ├── PostGISCommitResult.cs
-    └── PostGISService.cs
+GIS_Demo/GIS.PostGIS/
+├── GIS.PostGIS.csproj
+├── README_PostGIS.md
+├── PostGISConnection.cs
+├── PostGISSchemaMapper.cs
+├── PostGISColumnNames.cs
+├── PostGISExporter.cs
+├── PostGISExportMode.cs
+├── PostGISImporter.cs
+├── PostGISFeatureRecord.cs
+├── PostGISLayerSource.cs
+├── PostGISReadOnlyLayerContext.cs
+├── PostGISLayerContext.cs
+├── PostGISChangeSet.cs
+├── PostGISCommitResult.cs
+└── PostGISService.cs
 ```
 
 目标框架为 .NET Framework 4.8，引用模块1的 `GIS` 类库，数据库驱动为 `Npgsql 4.1.14`。
