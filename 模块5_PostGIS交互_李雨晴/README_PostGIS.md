@@ -196,6 +196,12 @@ PostGISCommitResult result = service.CommitChanges(context, changes);
 
 PostGIS 功能已经集成到 `GIS.Display.Demo`。运行主程序后点击“PostGIS 数据源”，输入连接参数并选择空间表，即可在后台把数据库图层加入当前地图，读取过程中可以查看进度或取消操作。非 4326 图层由 PostGIS 转换为 4326 后显示。点击“上传 PostGIS”可以选择地图图层、Schema、表名、目标 SRID以及新建、覆盖或追加方式。独立数据库演示与测试工程已从简洁版本中移除。
 
+### 当前版本验证
+
+已在本机 PostgreSQL/PostGIS 环境中验证连接和读取流程：程序可以读取 PostGIS 版本和空间表列表，并成功将 `public.admin_city` 图层加入地图，实际读取 363 个要素。上传流程已完成编译回归检查，支持进度显示、取消和事务回滚；写入前会检查字段、Geometry 类型和目标坐标系。
+
+上传坐标处理采用“先统一、再存储”的流程：程序将地图图层整理为 WGS84（EPSG:4326）的上传副本，用户在“存储坐标系”中选择数据库最终使用的坐标系。如果目标坐标系不同，PostGIS 在事务内使用 `ST_Transform` 转换后写入；地图中的原始图层不会因此被修改。WKT 仅作为软件与数据库之间的几何交换文本，数据库内部仍保存原生 Geometry，并使用 GiST 索引支持空间查询。
+
 ## 当前边界
 
 - `ProjectionCS` 没有 EPSG/SRID 属性，因此保存时必须显式传入 SRID；读取时通过 `out int srid` 返回，暂不自动构造 ProjectionCS。
