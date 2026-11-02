@@ -260,6 +260,8 @@ namespace GIS.Display
                 symbolArea.Height = AttachLegend(ur.ShowHead ? ur.HeadTitle : "", ur.ValueCount, i => ur.GetSymbol(i), i => LabelOf(ur.GetSymbol(i), ur.GetValue(i)), ur, ur.DefaultSymbol, "（其他值）", bindingError);
             else if (r is ClassBreaksRenderer cr && cr.BreakCount > 0)
                 symbolArea.Height = AttachLegend(cr.ShowHead ? cr.HeadTitle : "", cr.BreakCount, i => cr.GetSymbol(i), i => LabelOf(cr.GetSymbol(i), RangeLabel(cr, i)), cr, null, null, bindingError);
+            else if (r is ContinuousRenderer cont && cont.Ramp != null)
+                symbolArea.Height = AttachContinuousLegend(cont);
             else
                 symbolArea.Height = AttachSingleSymbol();
 
@@ -419,6 +421,76 @@ namespace GIS.Display
             symbolArea.AutoScrollMinSize = new Size(0, fullHeight);   // 显式设定滚动内容高度，保证能滚到末行
             symbolArea.Controls.Add(list);
             return Math.Min(fullHeight, maxHeight);
+        }
+
+        // 连续渲染：标题 + 色带渐变条 + 范围文字（点击进入渲染设置）
+        private int AttachContinuousLegend(ContinuousRenderer renderer)
+        {
+            int headerHeight = renderer.ShowHead ? Math.Max(26, Font.Height + 8) : 0;
+            int barHeight = 18;
+            int captionHeight = Font.Height + 6;
+            int contentWidth = Math.Max(120, symbolArea.ClientSize.Width);
+            int fullHeight = headerHeight + barHeight + captionHeight + 18;
+            var list = new FlowLayoutPanel
+            {
+                Location = new ScreenPoint(0, 0),
+                Size = new Size(contentWidth, fullHeight),
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                Margin = new Padding(0)
+            };
+            if (headerHeight > 0)
+            {
+                list.Controls.Add(new Label
+                {
+                    Text = renderer.HeadTitle,
+                    AutoSize = false,
+                    Size = new Size(contentWidth, headerHeight),
+                    Margin = new Padding(0),
+                    Font = new Font(Font, FontStyle.Bold),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(4, 0, 0, 0)
+                });
+            }
+            var bar = new Panel
+            {
+                Size = new Size(Math.Max(60, contentWidth - 12), barHeight),
+                Margin = new Padding(6, 4, 6, 2),
+                Cursor = Cursors.Hand,
+                BackColor = Color.White
+            };
+            ColorRamp ramp = renderer.Ramp;
+            bar.Paint += (s, e) =>
+            {
+                Rectangle area = bar.ClientRectangle;
+                if (ramp != null && ramp.Count > 0)
+                {
+                    for (int x = 0; x < area.Width; x++)
+                    {
+                        double t = area.Width <= 1 ? 0 : (double)x / (area.Width - 1);
+                        using (var brush = new SolidBrush(ramp.GetColor(t)))
+                            e.Graphics.FillRectangle(brush, x, 0, 1, area.Height - 1);
+                    }
+                }
+                using (var pen = new Pen(Color.FromArgb(130, 130, 130)))
+                    e.Graphics.DrawRectangle(pen, 0, 0, area.Width - 1, area.Height - 1);
+            };
+            bar.Click += (s, e) => RendererEditRequested?.Invoke(this);
+            bar.ContextMenuStrip = menu;
+            list.Controls.Add(bar);
+            var caption = new Label
+            {
+                Text = ContinuousMarks.FormatValue(renderer.Minimum) + "  ~  " + ContinuousMarks.FormatValue(renderer.Maximum),
+                AutoSize = false,
+                Size = new Size(Math.Max(60, contentWidth - 12), captionHeight),
+                Margin = new Padding(6, 0, 6, 0),
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            caption.ContextMenuStrip = menu;
+            list.Controls.Add(caption);
+            symbolArea.AutoScrollMinSize = new Size(0, fullHeight);
+            symbolArea.Controls.Add(list);
+            return fullHeight;
         }
 
         private void EditLegendSymbol(Renderer renderer, int index, Func<int, Symbol> getSymbol)

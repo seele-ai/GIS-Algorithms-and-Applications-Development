@@ -44,7 +44,7 @@ namespace GIS
     {
         private SimpleMarkerSymbolStyleConstant _Style = SimpleMarkerSymbolStyleConstant.Circle;
         private Color _Color = Color.LightPink;             //填充颜色
-        private Color _OutlineColor = Color.Transparent;    //边框颜色
+        private Color _OutlineColor = Color.Black;           //边框颜色（默认黑色边框）
         private double _OutlineWidth = 0.3;                 //边框宽度，单位毫米
         private double _Size = 3;                           //尺寸，单位毫米
 

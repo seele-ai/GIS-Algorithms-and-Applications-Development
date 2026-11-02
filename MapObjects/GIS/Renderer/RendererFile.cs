@@ -37,6 +37,12 @@ namespace GIS
         /// </summary>
         private const string DefaultSymbolMarker = "[默认符号]";
 
+        /// <summary>
+        /// 色带块的标记（只有连续渲染才有）：随后若干行是色带名称、节点数与各节点。
+        /// 旧版文件没有这一段，读取时按“没有色带”处理。
+        /// </summary>
+        private const string RampMarker = "[色带]";
+
         #region 扩展名与文件对话框筛选器
 
         /// <summary>取几何类型对应的文件扩展名。</summary>
@@ -106,6 +112,7 @@ namespace GIS
 
             UniqueValueRenderer unique = renderer as UniqueValueRenderer;
             ClassBreaksRenderer breaks = renderer as ClassBreaksRenderer;
+            ContinuousRenderer continuous = renderer as ContinuousRenderer;
 
             if (unique != null)
             {
@@ -131,6 +138,18 @@ namespace GIS
                     WriteSymbol(lines, breaks.GetSymbol(i), geometryType);
                 }
             }
+            else if (continuous != null)
+            {
+                lines.Add("渲染类型=连续");
+                lines.Add("绑定字段=" + continuous.Field);
+                lines.Add("最小值=" + Num(continuous.Minimum));
+                lines.Add("最大值=" + Num(continuous.Maximum));
+                if (continuous.Ramp != null)
+                {
+                    lines.Add(RampMarker);
+                    WriteRamp(lines, continuous.Ramp);
+                }
+            }
             else
             {
                 lines.Add("渲染类型=单一符号");
@@ -139,15 +158,60 @@ namespace GIS
                 WriteSymbol(lines, simpleRenderer == null ? null : simpleRenderer.Symbol, geometryType);
             }
 
-            // 默认符号（唯一值/分级渲染）：单独一个块，接在所有分类符号之后。
-            // 不写这一行时表示“没有默认符号”，与旧版文件一致。
-            Symbol defaultSymbol = unique != null ? unique.DefaultSymbol : (breaks != null ? breaks.DefaultSymbol : null);
+            // 默认符号（唯一值/分级/连续渲染）：单独一个块，接在所有分类符号之后。
+            // 不写这一行时表示“没有默认符号”，与旧版文件一致。连续渲染里它就是模板符号。
+            Symbol defaultSymbol = unique != null ? unique.DefaultSymbol
+                : (breaks != null ? breaks.DefaultSymbol : (continuous != null ? continuous.Symbol : null));
             if (defaultSymbol != null)
             {
                 lines.Add(DefaultSymbolMarker);
                 WriteSymbol(lines, defaultSymbol, geometryType);
             }
             return lines.ToArray();
+        }
+
+        // 色带块：[色带] 之后依次是名称、节点数、各节点（位置;A;R;G;B;插值方式）
+        private static void WriteRamp(List<string> lines, ColorRamp ramp)
+        {
+            lines.Add("名称=" + (ramp.Name ?? ""));
+            lines.Add("节点数=" + ramp.Count);
+            foreach (ColorRampNode node in ramp.Nodes)
+            {
+                lines.Add(string.Format(CultureInfo.InvariantCulture, "{0:F6};{1};{2};{3};{4};{5}",
+                    node.Position, node.Color.A, node.Color.R, node.Color.G, node.Color.B,
+                    node.Interpolation == RampInterpolation.Hsv ? "HSV" : "RGB"));
+            }
+        }
+
+        // 解析色带块；没有有效节点时返回 null
+        private static ColorRamp ReadRamp(List<string> block)
+        {
+            if (block == null || block.Count == 0) return null;
+            ColorRamp ramp = new ColorRamp("自定义色带");
+            foreach (string raw in block)
+            {
+                string line = raw.Trim();
+                if (line.Length == 0) continue;
+                if (line.StartsWith("名称=", StringComparison.Ordinal)) { ramp.Name = line.Substring(3); continue; }
+                if (line.StartsWith("节点数=", StringComparison.Ordinal)) continue;
+                string[] parts = line.Split(';');
+                if (parts.Length < 6) continue;
+                double position;
+                int a, r, g, b;
+                if (!double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out position)) continue;
+                if (!int.TryParse(parts[1], out a)) continue;
+                if (!int.TryParse(parts[2], out r)) continue;
+                if (!int.TryParse(parts[3], out g)) continue;
+                if (!int.TryParse(parts[4], out b)) continue;
+                ramp.AddNode(new ColorRampNode(position, Color.FromArgb(ClampByte(a), ClampByte(r), ClampByte(g), ClampByte(b)),
+                    parts[5].Equals("HSV", StringComparison.OrdinalIgnoreCase) ? RampInterpolation.Hsv : RampInterpolation.Rgb));
+            }
+            return ramp.Count == 0 ? null : ramp;
+        }
+
+        private static int ClampByte(int value)
+        {
+            return value < 0 ? 0 : (value > 255 ? 255 : value);
         }
 
         private static void WriteSymbol(List<string> lines, Symbol symbol, GeometryTypeConstant geometryType)
@@ -252,16 +316,20 @@ namespace GIS
             string rendererType = "单一符号";
             string field = "";
             int expected = 0;
+            double minValue = 0, maxValue = 0;
+            bool hasRange = false;
             var blocks = new List<List<string>>();
             var defaultBlock = new List<string>();
+            var rampBlock = new List<string>();
             List<string> current = null;
 
             for (int i = 1; i < lines.Length; i++)
             {
                 string line = lines[i].Trim();
                 if (line.Length == 0) continue;
-                // 默认符号块（唯一值/分级）单独收集，不计入分类符号个数
+                // 默认符号块（唯一值/分级/连续）与色带块（连续）单独收集，不计入分类符号个数
                 if (line == DefaultSymbolMarker) { current = defaultBlock; continue; }
+                if (line == RampMarker) { current = rampBlock; continue; }
                 if (line == SymbolMarker) { current = new List<string>(); blocks.Add(current); continue; }
                 if (current == null)
                 {
@@ -273,6 +341,14 @@ namespace GIS
                         case "几何类型": fileGeometry = ParseGeometryName(value); break;
                         case "渲染类型": rendererType = value; break;
                         case "绑定字段": field = value; break;
+                        case "最小值":
+                            double minParsed;
+                            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out minParsed)) { minValue = minParsed; hasRange = true; }
+                            break;
+                        case "最大值":
+                            double maxParsed;
+                            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out maxParsed)) { maxValue = maxParsed; hasRange = true; }
+                            break;
                         case "值个数":
                         case "分级数":
                             int parsed;
@@ -317,6 +393,15 @@ namespace GIS
                     breaks.AddBreakValue(upper, ReadSymbol(block, fileGeometry));
                 }
                 renderer = breaks;
+            }
+            else if (rendererType == "连续")
+            {
+                var continuous = new ContinuousRenderer();
+                continuous.Field = field;
+                continuous.Symbol = defaultSymbol;
+                continuous.Ramp = ReadRamp(rampBlock);
+                if (hasRange) continuous.SetRange(minValue, maxValue);
+                renderer = continuous;
             }
             else
             {
@@ -373,7 +458,7 @@ namespace GIS
                 double offset = ParseDouble(ValueOf(block, bp + "偏移", "0"), 0);
                 fill.Outlines.Add(new FillOutline(offset, ReadLineSymbol(block, bp)));
             }
-            if (fill.Outlines.Count == 0) fill.Outlines.Add(new FillOutline(0, new SimpleLineSymbol { Color = Color.DarkGray }));
+            // 边界数=0 表示“无边框面符号”，必须原样保留（此前这里会自动补一条边界，导致边框删不掉）
             return fill;
         }
 

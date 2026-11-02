@@ -12,7 +12,10 @@ namespace GIS
         UniqueValue,
 
         /// <summary>分级渲染</summary>
-        ClassBreaks
+        ClassBreaks,
+
+        /// <summary>连续渲染（按数值在色带上取色，点/线/面通用）</summary>
+        Continuous
     }
 
     /// <summary>

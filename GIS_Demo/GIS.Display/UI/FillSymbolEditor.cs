@@ -93,9 +93,13 @@ namespace GIS.Display.UI
         private void RemoveOutline()
         {
             int i = outlineList.SelectedIndex;
-            if (i < 0 || symbol.Outlines.Count <= 1) return;
+            if (i < 0) return;
+            // 允许删掉最后一条边界：实际应用中经常需要“无边框面符号”
             symbol.Outlines.RemoveAt(i);
-            RebuildList(); RefreshPreview();
+            RebuildList();
+            if (outlineList.Items.Count > 0)
+                outlineList.SelectedIndex = Math.Min(i, outlineList.Items.Count - 1);
+            RefreshPreview();
         }
         private void MoveOutline(int delta)
         {
@@ -112,6 +116,8 @@ namespace GIS.Display.UI
                 var o = symbol.Outlines[i];
                 outlineList.Items.Add(string.Format("[{0}] 偏移{1:F1}mm 线宽{2:F1}mm", i + 1, o.Offset, o.Outline == null ? 0 : o.Outline.Size));
             }
+            if (symbol.Outlines.Count == 0)
+                outlineList.Items.Add("（无边框：面只有填充色）");
         }
 
         private void RefreshPreview() => preview.Invalidate();
