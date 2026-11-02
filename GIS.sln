@@ -11,6 +11,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS", "MapObjects\GIS\GIS.c
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS.PostGIS", "GIS_Demo\GIS.PostGIS\GIS.PostGIS.csproj", "{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GIS.Toolbox", "GIS_Demo\GIS.Toolbox\GIS.Toolbox.csproj", "{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Release|x64.Build.0 = Release|Any CPU
 		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Release|x86.ActiveCfg = Release|Any CPU
 		{15D3A0D6-FA6C-4472-9B3E-DB71D229E51A}.Release|x86.Build.0 = Release|Any CPU
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|x64.ActiveCfg = Debug|x64
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|x64.Build.0 = Debug|x64
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|x86.ActiveCfg = Debug|x86
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Debug|x86.Build.0 = Debug|x86
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|x64.ActiveCfg = Release|x64
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|x64.Build.0 = Release|x64
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|x86.ActiveCfg = Release|x86
+		{7C3E2A41-6B5D-4E8F-9A2C-1D4F8B6E3A57}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

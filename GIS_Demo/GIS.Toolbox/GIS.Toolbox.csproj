@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>GIS.Toolbox</RootNamespace>
+    <AssemblyName>GIS.Toolbox</AssemblyName>
+    <Authors>赵佶昊</Authors>
+    <Description>工具箱：主窗口右侧的工具箱面板、工具界面模板与后续空间分析工具</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GIS.Display\GIS.Display.csproj" />
+    <ProjectReference Include="..\..\MapObjects\GIS\GIS.csproj" />
+  </ItemGroup>
+</Project>

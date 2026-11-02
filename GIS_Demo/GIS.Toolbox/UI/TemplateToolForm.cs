@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
+using GIS.Display;
 
-namespace GIS.Display.UI
+namespace GIS.Toolbox.UI
 {
     /// <summary>
     /// 模板工具：工具界面的**模板**（后续同学照这个骨架写自己的空间分析工具）。

@@ -42,11 +42,12 @@ GIS_program/
     │   ├── LayerControl.cs         图层行控件 + 图层管理面板（模块3）
     │   └── UI/                     颜色选择器、点/线/面符号与渲染/注记编辑器、色带编辑器、分带选择、投影到 WGS84（模块3）
     ├── GIS.Display.Demo/       主界面（MainForm.cs：导入 SHP、投影与分带、PostGIS 读写；已不含案例/演示数据）
+    ├── GIS.Toolbox/            工具箱类库（net48 WinForms）：右侧工具箱面板 + 工具界面模板 + Tools/ 下后续分析工具
     ├── GIS.PostGIS/            PostgreSQL/PostGIS 数据访问类库
     └── README.md
 ```
 
-解决方案包含 4 个工程：`GIS`、`GIS.Display`、`GIS.Display.Demo`、`GIS.PostGIS`。
+解决方案包含 5 个工程：`GIS`、`GIS.Display`、`GIS.Toolbox`、`GIS.Display.Demo`、`GIS.PostGIS`。
 
 ## 编译与运行
 
@@ -754,7 +755,24 @@ dotnet run --project MapObjects\GISDemo
 
 给后续空间数据处理功能准备的入口：主窗口**右侧**新增一列“工具箱”，与左侧图层面板对称；工具箱里用**树状（文件夹）结构**组织工具，点工具箱前的 `+`/`-` 即可展开/收起子文件夹。
 
-### 结构
+### 独立工程 `GIS_Demo/GIS.Toolbox/`
+
+工具箱单独放在一个工程里（**后续实现具体工具的同学只在这个工程里写代码**，不用改模块1/2/3）：
+
+```
+GIS_Demo/GIS.Toolbox/
+├── GIS.Toolbox.csproj         net48 + WinForms，引用 GIS 与 GIS.Display
+├── ToolBoxControl.cs          工具箱面板：树（文件夹=工具箱、叶子=工具）、注册与打开
+├── ToolCatalog.cs             ★ 工具登记表：加工具只改这个文件
+├── UI/
+│   ├── ToolFormBase.cs        工具界面基类：六类输入项的顺序 + 右下角“运行” + 校验/结果摘要
+│   └── TemplateToolForm.cs    模板工具（模板工具箱里那一个）
+├── Tools/                     ★ 后续同学的工具放这里（按工具箱分子目录）
+│   ├── Overlay/               叠加分析工具箱（叠加/相交/裁剪/擦除…）
+│   ├── Proximity/             邻近分析工具箱（缓冲/泰森多边形/最近要素…）
+│   └── DataManagement/        数据管理工具箱（合并/转投影/检查…）
+└── README.md                  工程内的详细说明与“加一个工具”的三步示例
+```
 
 | 节点 | 内容 | 说明 |
 |---|---|---|
@@ -763,36 +781,31 @@ dotnet run --project MapObjects\GISDemo
 | 数据管理工具箱 | 暂空（占位） | 后续合并/转投影/数据检查等工具挂在这里 |
 | 模板工具箱 → 模板工具 | **工具界面模板** | 点“模板工具”弹出模板工具界面（后续同学照它写自己的工具） |
 
-相关文件：
-
-- `GIS_Demo/GIS.Display/ToolBoxControl.cs`：工具箱面板（树 + 工具注册表）。`AddCategory(name)` 加工具箱、`AddTool(category, name, map => new XxxToolForm(map), "说明")` 加工具；空工具箱自动放“（暂无工具）”占位，加工具时自动去掉占位。
-- `GIS_Demo/GIS.Display/UI/ToolFormBase.cs`：工具界面基类，**统一规定输入项的顺序**与右下角“运行”，派生类只写 `CollectInputs`（读控件 + 校验）与 `Execute`（真正算法）。
-- `GIS_Demo/GIS.Display/UI/TemplateToolForm.cs`：模板工具（模板工具箱里那一个）。
-- `GIS_Demo/GIS.Display.Demo/MainForm.cs`：`toolboxSplit`（`FixedPanel = Panel2`、宽 268）把工具箱放在地图右侧；窗口变宽时多余空间留给地图。
+`GIS.Display.Demo` 通过 `ProjectReference` 引用 `GIS.Toolbox`；`MainForm` 用 `toolboxSplit`（`FixedPanel = Panel2`、宽 268）把工具箱放在地图右侧，窗口变宽时多余空间留给地图。
 
 ### 加一个新工具（两步）
 
 ```csharp
-// 1) 派生工具界面（照抄 TemplateToolForm 的骨架，把 Execute 换成真正的算法）
+// 1) 在 Tools/<对应工具箱>/ 下派生工具界面（照抄 TemplateToolForm 的骨架，把 Execute 换成真正的算法）
 public sealed class BufferToolForm : ToolFormBase { ... }
 
-// 2) 在 ToolBoxControl.BuildDefaultTools 里加一行
-AddTool(ProximityCategory, "缓冲分析", map => new BufferToolForm(map), "按距离生成缓冲面");
+// 2) 在 ToolCatalog.RegisterDefaults(...) 里加一行
+box.AddTool(ToolBoxControl.ProximityCategory, "缓冲分析", map => new GIS.Toolbox.Tools.Proximity.BufferToolForm(map), "按距离生成缓冲面");
 ```
 
 ### 模板工具的输入项（严格按此顺序）
 
-1. **输入要素**：下拉框。第一行固定是 **“（当前所有图层的已选要素）”**（把地图上所有图层的已选要素合并作为输入），第二行起是当前所有图层的**按图层顺序（顶层在前，与图层面板一致）**，每项显示“名称（几何类型，要素数）”；
+1. **输入要素**：下拉框。第一行固定是 **“（当前所有图层的已选要素：点 2 个、面 1 个，共 3 个）”**——括号里列出**当前已选要素的几何类型与个数**（没有已选要素时写“无”），用户和工具据此判断输入是否合法；展开下拉时自动刷新。第二行起是当前所有图层的**按图层顺序（顶层在前，与图层面板一致）**，每项显示“名称（几何类型，要素数）”；
 2. **其他图层**：下拉框，**只能选图层**，没有“已选要素”这一项（默认不选，必须手动选）；
 3. **必要参数（手动输入）**：文本框（模板里带“例如：100”的浅色占位提示）；
 4. **必要参数（选择）**：下拉框，从固定选项里选；
 5. **框选参数**：一组勾选框（模板里三个示例）；
 6. **输出图层名**：文本框；
-7. **最右下角“运行”**（左边是“关闭”）：先校验（输入要素是否为空、有没有已选要素、其他图层是否选、手动参数是否填、输出图层名是否为空或与已有图层重名），通过后把六个输入整理成 `ToolRunInputs`，在“运行结果”里打印条目摘要并把输入交给 `Execute`。
+7. **最右下角“运行”**（左边是“关闭”）：先校验（输入要素是否为空、有没有已选要素、其他图层是否选、手动参数是否填、输出图层名是否为空或与已有图层重名），通过后统计输入要素的几何类型（`ToolRunInputs.GeometrySummary`，并按 `AcceptedInputTypes` 校验类型是否符合工具要求），在“运行结果”里打印条目摘要并把输入交给 `Execute`。
 
-`ToolFormBase` 同时给后续工具留了这些现成能力：`CandidateLayers(filter)`（顶层在前的候选图层）、`SelectedLayer(combo)`、`IsSelectionOption(combo)`、`LayerText/GeometryText`、`ShowResult(text)`。
+`ToolFormBase` 给后续工具留了这些现成能力：`CandidateLayers(filter)`（顶层在前的候选图层）、`SelectedLayer(combo)`、`IsSelectionOption(combo)`、`SummarizeGeometry(features)`、`AcceptedInputTypes`（声明接受的几何类型，运行时自动校验）、`ShowResult(text)`。
 
 ### 验证
 
-- `dotnet build GIS_program\GIS.sln`：**0 警告 0 错误**。
-- 由于独立自检工程 `GIS.Display.Checks`/`GISDemo` 已在“精简工程结构”中被移出解决方案，本轮用一个**仓库外的临时自检程序**（放在 `_verify_toolbox`，不属于工程）验证了 31 项：工具箱四个分类与顺序、`+/-` 与连接线、空工具箱占位、加工具箱/加工具、点“模板工具”弹出 `TemplateToolForm`、六个输入项的顺序、输入要素下拉首项是“已选要素”且其余按顶层在前、其他图层下拉没有任何“已选要素”项、框选参数是未勾选复选框、“运行”按钮位于窗口最右下角、各类校验提示（缺其他图层 / 缺输出名 / 重名 / 无已选要素）、填齐后运行成功并拿到完整 `ToolRunInputs`、主窗口右侧确实有 268 像素宽的工具箱且位于地图右侧。
+- `dotnet build GIS_program\GIS.sln`：**0 警告 0 错误**（`GIS.Toolbox` 已加入解决方案）。
+- 由于独立自检工程 `GIS.Display.Checks`/`GISDemo` 已在“精简工程结构”中被移出解决方案，本轮用一个**仓库外的临时自检程序**（`_verify_toolbox`，不属于工程）验证了 38 项：工具箱四个分类与顺序、`+/-` 与连接线、空工具箱占位、**点工具箱节点不会二次展开/收起（子目录不再只闪一下）**、键盘 Enter 仍可展开收起、加工具箱/加工具、点“模板工具”弹出 `TemplateToolForm`、六个输入项的顺序、输入要素首项带**几何类型统计**（“点 2 个、面 1 个，共 3 个”，无已选要素时写“无”）且其余图层按顶层在前、其他图层下拉没有任何“已选要素”项、框选参数是未勾选复选框、“运行”按钮位于窗口最右下角、各类校验提示、填齐后运行成功并拿到完整 `ToolRunInputs`（含几何类型统计）、**切换图层显示/隐藏不重建图层行、不重画图例符号区**（行对象与符号区控件对象保持不变）、图层顺序变化仍照常重建、主窗口右侧 268 像素工具箱且位于地图右侧。

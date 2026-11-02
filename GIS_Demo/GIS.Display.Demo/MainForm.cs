@@ -9,6 +9,7 @@ using GIS.IO;
 using System.Windows.Forms;
 using GIS.PostGIS;
 using GIS.Display.UI;
+using GIS.Toolbox;
 
 namespace GIS.Display.Demo
 {

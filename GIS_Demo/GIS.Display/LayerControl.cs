@@ -224,6 +224,27 @@ namespace GIS.Display
             RebuildSymbolArea();
         }
 
+        /// <summary>
+        /// 轻量同步：只对齐可见性复选框与图层名，**不重建符号区**。
+        /// 切换“是否显示图层”不会影响符号，整块重建（含重画图例）既慢又会闪，
+        /// 因此这种情况走这里（见 <see cref="LayerManagerControl"/> 的结构未变判断）。
+        /// </summary>
+        public void SyncQuickState()
+        {
+            updating = true;
+            check.Checked = Layer.Visible;
+            updating = false;
+            string displayName = Layer.Name;
+            bool bindingError = Layer.Renderer != null && Layer.Renderer.HasBindingError;
+            nameLabel.ForeColor = bindingError ? Color.Red : SystemColors.ControlText;
+            if (!bindingError && !Layer.IsWgs84)
+            {
+                displayName += " [" + Layer.GeographicDatum.ShortName + "]";
+                nameLabel.ForeColor = Color.FromArgb(200, 110, 0);
+            }
+            if (!string.Equals(nameLabel.Text, displayName)) nameLabel.Text = displayName;
+        }
+
         #region 符号区（单一符号 或 符号+属性表格）
 
         private void RebuildSymbolArea()
@@ -549,7 +570,31 @@ namespace GIS.Display
             Rebuild();
         }
 
-        private void OnLayersChanged(object sender, EventArgs e) => Rebuild();
+        /// <summary>
+        /// 图层集合变化：**只有图层数量/顺序真的变了才重建所有行**。
+        /// 切换“是否显示图层”也会触发这个事件，但行的结构、符号都没有变化，
+        /// 此时只做轻量同步（勾选框 + 图层名），避免整块面板重建/重画带来的闪烁。
+        /// </summary>
+        private void OnLayersChanged(object sender, EventArgs e)
+        {
+            if (map == null) return;
+            var layers = map.Layers.Reverse().ToList();      // 顶层在前
+            if (rows.Count == layers.Count && SameLayers(layers))
+            {
+                foreach (LayerControl row in rows) row.SyncQuickState();
+                ResizeLayerRows();
+                return;
+            }
+            Rebuild();
+        }
+
+        // 行与地图图层是否一一对应（同数量、同顺序、同对象）
+        private bool SameLayers(List<Layer> layers)
+        {
+            for (int i = 0; i < layers.Count; i++)
+                if (!ReferenceEquals(rows[i].Layer, layers[i])) return false;
+            return true;
+        }
 
         public void Rebuild()
         {

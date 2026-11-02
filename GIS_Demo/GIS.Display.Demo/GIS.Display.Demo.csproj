@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GIS.Display\GIS.Display.csproj" />
+    <ProjectReference Include="..\GIS.Toolbox\GIS.Toolbox.csproj" />
     <ProjectReference Include="..\GIS.PostGIS\GIS.PostGIS.csproj" />
   </ItemGroup>
 </Project>

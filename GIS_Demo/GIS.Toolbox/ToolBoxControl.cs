@@ -2,9 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
-using GIS.Display.UI;
+using GIS.Display;
+using GIS.Toolbox.UI;
 
-namespace GIS.Display
+namespace GIS.Toolbox
 {
     /// <summary>
     /// 工具箱里的一个工具（树的叶子节点）：所属工具箱 + 工具名 + 打开工具界面的工厂方法。
@@ -120,7 +121,7 @@ namespace GIS.Display
             Controls.Add(title);
             tree.NodeMouseClick += (s, e) =>
             {
-                if (e.Button == MouseButtons.Left) ActivateNode(e.Node);
+                if (e.Button == MouseButtons.Left) ClickNode(e.Node);
             };
             tree.KeyDown += (s, e) =>
             {
@@ -137,16 +138,10 @@ namespace GIS.Display
             Map = map;
         }
 
-        // 默认的工具箱与工具。
-        // 三个分析工具箱先占位；模板工具箱里放工具界面模板（后续同学照着它写自己的工具界面）。
+        // 默认的工具箱与工具都登记在 ToolCatalog 里（后续同学只需要改那一个文件）。
         private void BuildDefaultTools()
         {
-            AddCategory(OverlayCategory);
-            AddCategory(ProximityCategory);
-            AddCategory(DataManagementCategory);
-            AddCategory(TemplateCategory);
-            AddTool(TemplateCategory, TemplateToolName, map => new TemplateToolForm(map),
-                "工具界面模板：输入要素 → 其他图层 → 必要参数（手动输入 / 选择）→ 框选参数 → 输出图层名 → 运行");
+            ToolCatalog.RegisterDefaults(this);
         }
 
         /// <summary>添加一个工具箱（已存在时直接返回）。空工具箱里放一行“（暂无工具）”占位，便于展开/收起。</summary>
@@ -201,8 +196,23 @@ namespace GIS.Display
         }
 
         /// <summary>
-        /// 激活一个节点：工具箱节点只展开/收起；工具节点则创建并弹出工具界面。
-        /// 供点击与自动检查共用。
+        /// 鼠标左键单击节点：**只有工具（叶子）才打开界面**；工具箱节点什么都不做——
+        /// 展开/收起交给 TreeView 自己的 `+`/`-`（此前这里又 Toggle 了一次，
+        /// 与 TreeView 自带的展开叠加，表现为“点 + 后子目录闪一下又收回去”）。
+        /// </summary>
+        public void ClickNode(TreeNode node)
+        {
+            if (node == null) return;
+            var tool = node.Tag as ToolDescriptor;
+            if (tool == null) return;
+            tree.SelectedNode = node;
+            if (ToolRequested != null) ToolRequested(tool);
+            OpenTool(tool);
+        }
+
+        /// <summary>
+        /// 激活一个节点（键盘回车 / 空格，或程序调用）：工具箱节点展开/收起，工具节点打开界面。
+        /// 鼠标点击不要走这里（见 <see cref="ClickNode"/>），否则会与 `+`/`-` 的默认展开重复。
         /// </summary>
         public void ActivateNode(TreeNode node)
         {
@@ -213,9 +223,7 @@ namespace GIS.Display
                 node.Toggle();
                 return;
             }
-            tree.SelectedNode = node;
-            if (ToolRequested != null) ToolRequested(tool);
-            OpenTool(tool);
+            ClickNode(node);
         }
 
         /// <summary>创建工具界面但不显示（自动检查用；界面创建失败时返回 null）。</summary>

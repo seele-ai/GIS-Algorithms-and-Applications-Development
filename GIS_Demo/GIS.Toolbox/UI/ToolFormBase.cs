@@ -1,10 +1,12 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using GIS.Display;
+using GIS.Display.UI;
 
-namespace GIS.Display.UI
+namespace GIS.Toolbox.UI
 {
     /// <summary>一次“运行”用到的全部输入（工具界面按顺序收集，算法主体只读它）。</summary>
     public sealed class ToolRunInputs
@@ -27,6 +29,8 @@ namespace GIS.Display.UI
         public List<string> CheckedOptions = new List<string>();
         /// <summary>输出图层名。</summary>
         public string OutputLayerName;
+        /// <summary>输入要素的几何类型统计（例如“点 2 个、面 1 个”），便于工具判断输入是否合法。</summary>
+        public string GeometrySummary = "";
 
         /// <summary>输入要素条数。</summary>
         public int FeatureCount
@@ -41,7 +45,8 @@ namespace GIS.Display.UI
             text.AppendLine("输入要素：" + (FromSelection
                 ? "当前所有图层的已选要素"
                 : (InputLayer == null ? "（未指定）" : InputLayer.Name))
-                + "（" + FeatureCount + " 个要素）");
+                + "（" + FeatureCount + " 个要素"
+                + (string.IsNullOrEmpty(GeometrySummary) ? "" : "：" + GeometrySummary) + "）");
             if (FromSelection && InputLayers.Count > 0)
                 text.AppendLine("　　来自图层：" + string.Join("、", InputLayers.Select(l => l.Name).ToArray()));
             text.AppendLine("其他图层：" + (OtherLayer == null ? "（未指定）" : OtherLayer.Name));
@@ -207,7 +212,9 @@ namespace GIS.Display.UI
         #region 六类输入项（严格按需求顺序使用）
 
         /// <summary>
-        /// ① 输入要素：下拉框。第一项固定是“（当前所有图层的已选要素）”，
+        /// ① 输入要素：下拉框。第一项固定是“（当前所有图层的已选要素……）”——
+        /// 括号里会列出**当前已选要素的几何类型与个数**（例如“点 2 个、面 1 个，共 3 个”“无”），
+        /// 用户和工具据此判断输入是否合法；展开下拉时自动刷新。
         /// 之后是按图层顺序（顶层在前）列出所有“符合要求”的图层。
         /// </summary>
         /// <param name="label">标签文字。</param>
@@ -215,11 +222,53 @@ namespace GIS.Display.UI
         protected ComboBox AddInputFeaturesField(string label, Func<Layer, bool> layerFilter)
         {
             var combo = NewCombo();
-            combo.Items.Add(SelectionOptionText);
+            combo.Items.Add(SelectionSummaryText());
             foreach (Layer layer in CandidateLayers(layerFilter)) combo.Items.Add(new LayerItem(layer));
             combo.SelectedIndex = 0;
+            combo.DropDown += (s, e) => RefreshSelectionSummaryItem(combo);
+            combo.Enter += (s, e) => RefreshSelectionSummaryItem(combo);
             AddRow(label, combo);
             return combo;
+        }
+
+        /// <summary>把“已选要素”那一项的文字刷新成当前几何类型统计（选中状态保持不变）。</summary>
+        protected void RefreshSelectionSummaryItem(ComboBox combo)
+        {
+            if (combo == null || combo.Items.Count == 0) return;
+            if (combo.SelectedItem is LayerItem) return;          // 当前选的是图层，不动第一项
+            string text = SelectionSummaryText();
+            if (string.Equals(combo.Items[0].ToString(), text)) return;
+            int selected = combo.SelectedIndex;
+            combo.Items[0] = text;                                // 直接替换元素，选中项仍是“已选要素”
+            combo.SelectedIndex = selected < 0 ? 0 : selected;
+        }
+
+        /// <summary>
+        /// “当前所有图层的已选要素”这一项的文字：列出已选要素的**几何类型与个数**，
+        /// 便于用户与工具判断输入是否合法（没有已选要素时明确写“无”）。
+        /// </summary>
+        protected string SelectionSummaryText()
+        {
+            var all = new Features();
+            if (Map != null)
+            {
+                foreach (Layer layer in Map.Layers)
+                {
+                    Features selected = Map.GetSelection(layer);
+                    if (selected == null) continue;
+                    foreach (Feature feature in selected) all.Add(feature);
+                }
+            }
+            string head = SelectionOptionText.TrimEnd('）');
+            if (all.Count == 0) return head + "：无）";
+            return head + "：" + SummarizeGeometry(all) + "，共 " + all.Count + " 个）";
+        }
+
+        /// <summary>要素的几何类型（几何为空时退回图层类型）。</summary>
+        protected static GeometryTypeConstant FeatureGeometryType(Layer layer, Feature feature)
+        {
+            if (feature != null && feature.Geometry != null) return feature.Geometry.GeometryType;
+            return layer == null || layer.FeatureClass == null ? GeometryTypeConstant.Point : layer.FeatureClass.GeometryType;
         }
 
         /// <summary>② 其他图层：下拉框，**只有图层**（没有“已选要素”这一项）。默认不选，必须手动选。</summary>
@@ -299,6 +348,15 @@ namespace GIS.Display.UI
                 ShowResult(message);
                 return false;
             }
+            // 统计输入要素的几何类型（用户与工具据此判断输入是否合法），并按工具声明的要求校验
+            inputs.GeometrySummary = SummarizeGeometry(inputs.InputFeatures);
+            string rejected = DescribeUnacceptedGeometry(inputs);
+            if (rejected != null)
+            {
+                message = "无法运行：输入要素的几何类型不符合本工具要求（" + rejected + "）。";
+                ShowResult(message);
+                return false;
+            }
             LastInputs = inputs;
             try
             {
@@ -312,6 +370,50 @@ namespace GIS.Display.UI
                 ShowResult(message);
                 return false;
             }
+        }
+
+        /// <summary>工具接受的输入要素几何类型（null 或空 = 不限）。派生类在构造函数里设置即可自动校验。</summary>
+        protected GeometryTypeConstant[] AcceptedInputTypes { get; set; }
+
+        /// <summary>某个几何类型是否被本工具接受（默认全部接受；派生类可覆盖或设置 <see cref="AcceptedInputTypes"/>）。</summary>
+        protected virtual bool AcceptsGeometryType(GeometryTypeConstant type)
+        {
+            if (AcceptedInputTypes == null || AcceptedInputTypes.Length == 0) return true;
+            return AcceptedInputTypes.Contains(type);
+        }
+
+        /// <summary>输入要素的几何类型统计，例如“点 2 个、面 1 个”。</summary>
+        protected static string SummarizeGeometry(Features features)
+        {
+            if (features == null || features.Count == 0) return "无";
+            var counts = new Dictionary<GeometryTypeConstant, int>();
+            foreach (Feature feature in features)
+            {
+                GeometryTypeConstant type = feature == null || feature.Geometry == null
+                    ? GeometryTypeConstant.Point : feature.Geometry.GeometryType;
+                counts[type] = counts.ContainsKey(type) ? counts[type] + 1 : 1;
+            }
+            return string.Join("、", counts.OrderBy(pair => (int)pair.Key)
+                .Select(pair => GeometryText(pair.Key) + " " + pair.Value + " 个").ToArray());
+        }
+
+        // 返回不符合要求的几何类型说明；全部符合时返回 null
+        private string DescribeUnacceptedGeometry(ToolRunInputs inputs)
+        {
+            if (inputs == null || inputs.InputFeatures == null || inputs.InputFeatures.Count == 0) return null;
+            var rejected = new List<string>();
+            foreach (Feature feature in inputs.InputFeatures)
+            {
+                GeometryTypeConstant type = feature == null || feature.Geometry == null
+                    ? GeometryTypeConstant.Point : feature.Geometry.GeometryType;
+                if (AcceptsGeometryType(type)) continue;
+                string text = GeometryText(type);
+                if (!rejected.Contains(text)) rejected.Add(text);
+            }
+            if (rejected.Count == 0) return null;
+            string wanted = AcceptedInputTypes == null
+                ? "" : string.Join("、", AcceptedInputTypes.Select(GeometryText).ToArray());
+            return "需要 " + wanted + "，实际包含 " + string.Join("、", rejected.ToArray());
         }
 
         private void Run()
