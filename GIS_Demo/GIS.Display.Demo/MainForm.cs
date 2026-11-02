@@ -29,6 +29,9 @@ namespace GIS.Display.Demo
         private CancellationTokenSource postGISLoadCancellation;
         private SplitContainer mainContent;
         private SplitContainer workspaceSplit;
+        private SplitContainer toolboxSplit;
+        private readonly ToolBoxControl toolBox = new ToolBoxControl { Dock = DockStyle.Fill };
+        private bool toolboxSplitterInitialized;
         private TabControl bottomTabs;
         private readonly Dictionary<Layer, AttributeTableForm> attributeTables = new Dictionary<Layer, AttributeTableForm>();
         private SelectByAttributesForm selectByAttributesForm;
@@ -120,7 +123,16 @@ namespace GIS.Display.Demo
             mainContent.Panel2Collapsed = true;
             workspaceSplit = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
                 FixedPanel = FixedPanel.Panel2, Panel1MinSize = 240, Panel2MinSize = 100 };
-            workspaceSplit.Panel1.Controls.Add(mainContent);
+            // 右侧工具箱：与左侧图层面板对称的一列（树状结构，放后续同学的空间分析工具）。
+            // 注意：SplitContainer 的最小宽度必须在它**已经有实际尺寸**之后设置——
+            // 直接写在对象初始化器里（Width 还是 0）会抛“SplitterDistance 必须在 ... 之间”。
+            toolboxSplit = new SplitContainer { Dock = DockStyle.Fill, Size = new Size(1180, 560),
+                Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2,
+                SplitterWidth = 6, SplitterDistance = 1180 - 268 - 6,
+                Panel1MinSize = 480, Panel2MinSize = 200 };
+            toolboxSplit.Panel1.Controls.Add(mainContent);
+            toolboxSplit.Panel2.Controls.Add(toolBox);
+            workspaceSplit.Panel1.Controls.Add(toolboxSplit);
             bottomTabs = new TabControl { Dock = DockStyle.Fill,
                 DrawMode = TabDrawMode.OwnerDrawFixed, Padding = new System.Drawing.Point(20, 5) };
             bottomTabs.DrawItem += DrawBottomTab;
@@ -141,13 +153,15 @@ namespace GIS.Display.Demo
             Controls.Add(status);
             layerManager.Bind(Map);
             layerManager.AttributeTableRequested += OpenAttributeTable;
+            toolBox.Bind(Map);
             Map.ViewChanged += (s, e) => UpdateStatus();
             Map.SelectionChanged += (s, e) => UpdateSelection();
             Map.LayersChanged += (s, e) => { PrunePostGISLayers(); UpdateStatus(); RefreshEditingLayers(); };
             RefreshEditingLayers();
             Map.MapMouseMoved += (s, e) => UpdatePosition(e.Coordinate);
-            Shown += (s, e) => { ConfigureMainContentSplitter(); UpdateStatus(); };
+            Shown += (s, e) => { ConfigureMainContentSplitter(); ConfigureToolboxSplitter(); UpdateStatus(); };
             mainContent.SizeChanged += (s, e) => ConfigureMainContentSplitter();
+            toolboxSplit.SizeChanged += (s, e) => ConfigureToolboxSplitter();
             FormClosed += (s, e) => postGISLoadCancellation?.Cancel();
         }
 
@@ -185,10 +199,31 @@ namespace GIS.Display.Demo
             if (mainContentSplitterInitialized && !force) return;
 
             // 给连接项和三枚操作按钮保留足够宽度；窗口全屏时不再按比例放大。
+            // SplitterDistance 的合法上限是 Width - Panel2MinSize - SplitterWidth，少减 SplitterWidth 会抛异常。
+            int max = mainContent.Width - mainContent.Panel2MinSize - mainContent.SplitterWidth;
             int distance = mainContent.Width - DefaultPostGISPanelWidth;
-            mainContent.SplitterDistance = Math.Max(mainContent.Panel1MinSize,
-                Math.Min(distance, mainContent.Width - mainContent.Panel2MinSize));
+            mainContent.SplitterDistance = Math.Max(mainContent.Panel1MinSize, Math.Min(distance, max));
             mainContentSplitterInitialized = true;
+        }
+
+        /// <summary>右侧工具箱固定宽度（默认 268 像素），窗口变宽时把多余空间留给地图。</summary>
+        private void ConfigureToolboxSplitter()
+        {
+            if (toolboxSplit == null || toolboxSplit.Width < 700) return;
+            if (toolboxSplitterInitialized) return;
+            int wanted = 268;
+            int distance = toolboxSplit.Width - wanted - toolboxSplit.SplitterWidth;
+            // 合法上限 = Width - Panel2MinSize - SplitterWidth（漏减 SplitterWidth 会抛 SplitterDistance 异常）
+            int max = toolboxSplit.Width - toolboxSplit.Panel2MinSize - toolboxSplit.SplitterWidth;
+            if (max <= toolboxSplit.Panel1MinSize) return;
+            toolboxSplit.SplitterDistance = Math.Max(toolboxSplit.Panel1MinSize, Math.Min(distance, max));
+            toolboxSplitterInitialized = true;
+        }
+
+        /// <summary>当前右侧工具箱控件（自动检查用）。</summary>
+        public ToolBoxControl ToolBox
+        {
+            get { return toolBox; }
         }
 
         private void BuildEditingToolbar()
