@@ -287,10 +287,15 @@ namespace GIS.Display.UI
             return context.RampPositionOf(ValueAt(x));
         }
 
-        /// <summary>特殊值虚线的横坐标。</summary>
+        /// <summary>
+        /// 特殊值虚线的横坐标。区间内的按数值落在横轴上；**区间外的（μ±2σ、μ±3σ、数据不含 0 时的“零”等）
+        /// 直接落在最新横轴范围的两端**（左端/右端），因为它们超出了有颜色的数据范围。
+        /// </summary>
         public float MarkX(ContinuousMark mark)
         {
             if (mark == null) return float.NaN;
+            if (context == null) return XOf(mark.Position);
+            if (mark.Outside) return AxisXOf(mark.DataValue <= context.Min ? 0 : 1);
             return XOfValue(mark.DataValue);
         }
 
@@ -480,6 +485,31 @@ namespace GIS.Display.UI
             }
         }
 
+        /// <summary>
+        /// 画一条特殊值标注（竖排文字）。**锚点用矩形的右边界**：RotateTransform(90) 之后文字是从锚点
+        /// 向左铺开的（实测墨迹在锚点左侧约 4~15 像素内），用右边界作锚点，文字才正好落在预留矩形里。
+        /// 单独抽出来也方便自检直接验证“墨迹 ⊂ 矩形”。
+        /// </summary>
+        public void DrawMarkLabel(Graphics graphics, RectangleF rect, string text, bool outside)
+        {
+            if (graphics == null || string.IsNullOrEmpty(text)) return;
+            using (var font = new Font("Microsoft YaHei UI", MarkLabelSize))
+            using (var brush = new SolidBrush(outside ? Color.FromArgb(150, 120, 80) : Color.FromArgb(60, 60, 140)))
+            {
+                var state = graphics.Save();
+                try
+                {
+                    graphics.TranslateTransform(rect.Right - 1, rect.Y);
+                    graphics.RotateTransform(90);
+                    graphics.DrawString(text, font, brush, 0, 0);
+                }
+                finally
+                {
+                    graphics.Restore(state);
+                }
+            }
+        }
+
         // 特殊值虚线 + 竖排文字（顶端；先试线的右侧，撞车再试左侧，两边都放不下才跳过）
         private void DrawMarks(Graphics g, Rectangle kde)
         {
@@ -501,17 +531,7 @@ namespace GIS.Display.UI
                         g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 1, x, XAxisY - 1);
                         RectangleF rect = rects[i];
                         if (rect.IsEmpty) continue;           // 左右都放不下 → 放弃该条文字
-                        var textState = g.Save();
-                        try
-                        {
-                            g.TranslateTransform(rect.X + 1, rect.Y);
-                            g.RotateTransform(90);
-                            g.DrawString(mark.Label, font, mark.Outside ? outsideBrush : brush, 0, 0);
-                        }
-                        finally
-                        {
-                            g.Restore(textState);
-                        }
+                        DrawMarkLabel(g, rect, mark.Label, mark.Outside);
                     }
                 }
                 finally
