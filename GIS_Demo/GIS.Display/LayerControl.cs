@@ -260,6 +260,8 @@ namespace GIS.Display
                 symbolArea.Height = AttachLegend(ur.ShowHead ? ur.HeadTitle : "", ur.ValueCount, i => ur.GetSymbol(i), i => LabelOf(ur.GetSymbol(i), ur.GetValue(i)), ur, ur.DefaultSymbol, "（其他值）", bindingError);
             else if (r is ClassBreaksRenderer cr && cr.BreakCount > 0)
                 symbolArea.Height = AttachLegend(cr.ShowHead ? cr.HeadTitle : "", cr.BreakCount, i => cr.GetSymbol(i), i => LabelOf(cr.GetSymbol(i), RangeLabel(cr, i)), cr, null, null, bindingError);
+            else if (r is ContinuousRenderer cont && cont.Ramp != null)
+                symbolArea.Height = AttachContinuousLegend(cont);
             else
                 symbolArea.Height = AttachSingleSymbol();
 
@@ -419,6 +421,106 @@ namespace GIS.Display
             symbolArea.AutoScrollMinSize = new Size(0, fullHeight);   // 显式设定滚动内容高度，保证能滚到末行
             symbolArea.Controls.Add(list);
             return Math.Min(fullHeight, maxHeight);
+        }
+
+        /// <summary>
+        /// 连续渲染图例：**竖着的色带**（上=最大值，下=最小值）+ 右侧在对应位置标出数值
+        /// （最大、均值/中位数、最小）。点击色带进入渲染设置。
+        /// </summary>
+        private int AttachContinuousLegend(ContinuousRenderer renderer)
+        {
+            int headerHeight = renderer.ShowHead ? Math.Max(26, Font.Height + 8) : 0;
+            const int barWidth = 26;
+            const int barHeight = 104;
+            int contentWidth = Math.Max(140, symbolArea.ClientSize.Width);
+            int fullHeight = headerHeight + barHeight + 12;
+            var host = new Panel
+            {
+                Location = new ScreenPoint(0, 0),
+                Size = new Size(contentWidth, fullHeight),
+                Margin = new Padding(0),
+                BackColor = Color.Transparent
+            };
+            if (headerHeight > 0)
+            {
+                host.Controls.Add(new Label
+                {
+                    Text = renderer.HeadTitle,
+                    Location = new ScreenPoint(0, 0),
+                    Size = new Size(contentWidth, headerHeight),
+                    Font = new Font(Font, FontStyle.Bold),
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(4, 0, 0, 0)
+                });
+            }
+            ColorRamp ramp = renderer.Ramp;
+            var bar = new Panel
+            {
+                Location = new ScreenPoint(6, headerHeight + 2),
+                Size = new Size(barWidth, barHeight),
+                BackColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            // 上=最大值、下=最小值：竖着画
+            bar.Paint += (s, e) =>
+            {
+                Rectangle area = bar.ClientRectangle;
+                if (ramp != null && ramp.Count > 0)
+                {
+                    for (int y = 0; y < area.Height; y++)
+                    {
+                        double t = area.Height <= 1 ? 0 : 1.0 - (double)y / (area.Height - 1);
+                        using (var brush = new SolidBrush(ramp.GetColor(t)))
+                            e.Graphics.FillRectangle(brush, 0, y, area.Width - 1, 1);
+                    }
+                }
+                using (var pen = new Pen(Color.FromArgb(130, 130, 130)))
+                    e.Graphics.DrawRectangle(pen, 0, 0, area.Width - 1, area.Height - 1);
+            };
+            bar.Click += (s, e) => RendererEditRequested?.Invoke(this);
+            bar.ContextMenuStrip = menu;
+            host.Controls.Add(bar);
+
+            // 右侧数值：最大（顶）、均值/中位数（按位置）、最小（底）
+            int labelLeft = 6 + barWidth + 6;
+            int labelWidth = Math.Max(40, contentWidth - labelLeft - 4);
+            AddValueLabel(host, labelLeft, headerHeight + 2, labelWidth,
+                ContinuousMarks.FormatValue(renderer.Maximum) + "（最大）");
+            AddValueLabel(host, labelLeft, headerHeight + 2 + barHeight - Font.Height - 2, labelWidth,
+                ContinuousMarks.FormatValue(renderer.Minimum) + "（最小）");
+            double mean = renderer.HasRange ? (renderer.Minimum + renderer.Maximum) / 2 : 0;
+            var statistics = ContinuousStatistics.Compute(ContinuousRenderer.ValuesOf(
+                Layer == null ? null : Layer.FeatureClass, renderer.Field));
+            if (statistics.Count > 0)
+            {
+                mean = statistics.Mean;
+                string text = "均值 " + ContinuousMarks.FormatValue(statistics.Mean);
+                if (Math.Abs(statistics.Median - statistics.Mean) > 1e-9)
+                    text += "，中位数 " + ContinuousMarks.FormatValue(statistics.Median);
+                double t = renderer.HasRange && renderer.Maximum > renderer.Minimum
+                    ? (statistics.Mean - renderer.Minimum) / (renderer.Maximum - renderer.Minimum) : 0.5;
+                if (t < 0) t = 0;
+                if (t > 1) t = 1;
+                int y = headerHeight + 2 + (int)Math.Round((1 - t) * (barHeight - Font.Height - 2));
+                AddValueLabel(host, labelLeft, Math.Max(headerHeight + 2, y), labelWidth, text);
+            }
+            symbolArea.AutoScrollMinSize = new Size(0, fullHeight);
+            symbolArea.Controls.Add(host);
+            return fullHeight;
+        }
+
+        private void AddValueLabel(Control host, int left, int top, int width, string text)
+        {
+            var label = new Label
+            {
+                Text = text,
+                Location = new ScreenPoint(left, top),
+                Size = new Size(width, Font.Height + 4),
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+            label.ContextMenuStrip = menu;
+            host.Controls.Add(label);
         }
 
         private void EditLegendSymbol(Renderer renderer, int index, Func<int, Symbol> getSymbol)

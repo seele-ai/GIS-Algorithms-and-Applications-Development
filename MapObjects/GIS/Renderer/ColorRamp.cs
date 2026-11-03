@@ -68,6 +68,18 @@ namespace GIS
             set { _Interpolation = value; }
         }
 
+        /// <summary>
+        /// 绑定的特殊值标识（连续渲染界面上把标签拖到某条特殊值虚线后写入，例如 "Mean"、"Median"）。
+        /// **只用于界面内的显示与“均匀分布节点”，不写入色带文件**（读回后为空）。
+        /// </summary>
+        public string BindingKey { get; set; }
+
+        /// <summary>是否绑定了特殊值。</summary>
+        public bool IsBound
+        {
+            get { return !string.IsNullOrEmpty(BindingKey); }
+        }
+
         /// <summary>插值方式中文名。</summary>
         public string InterpolationName
         {
@@ -76,7 +88,7 @@ namespace GIS
 
         public ColorRampNode Clone()
         {
-            return new ColorRampNode(_Position, _Color, _Interpolation);
+            return new ColorRampNode(_Position, _Color, _Interpolation) { BindingKey = BindingKey };
         }
 
         public override string ToString()
@@ -215,6 +227,70 @@ namespace GIS
             int i = 0;
             foreach (ColorRampNode node in Nodes) node.Position = (double)i++ / (n - 1);
             _Head.Interpolation = RampInterpolation.Rgb;
+        }
+
+        /// <summary>已绑定特殊值的节点个数。</summary>
+        public int BoundCount
+        {
+            get
+            {
+                int count = 0;
+                foreach (ColorRampNode node in Nodes)
+                    if (node.IsBound) count++;
+                return count;
+            }
+        }
+
+        /// <summary>
+        /// “均匀分布节点”（连续渲染版）：**先看有没有绑定特殊值的标签**。
+        /// 没有绑定：全部均匀分布（与 <see cref="DistributeEvenly"/> 相同）。
+        /// 有绑定：绑定节点停在对应特殊值的位置不动，其余节点在“0 → 各绑定节点 → 1”
+        /// 划分出的每个区间内各自均匀分布。
+        /// **位置正好在 0 / 1（区间端点）的节点视为固定端点**：它们本来就在端点，缩放后仍应留在端点，
+        /// 不能被挪到区间中间。
+        /// </summary>
+        public void DistributeEvenlyRespectingBindings()
+        {
+            var fixedNodes = new List<ColorRampNode>();
+            var freeNodes = new List<ColorRampNode>();
+            foreach (ColorRampNode node in Nodes)
+            {
+                // 绑定节点 + 位于端点（0/1）的节点都固定不动
+                if (node.IsBound || node.Position <= 1e-9 || node.Position >= 1 - 1e-9) fixedNodes.Add(node);
+                else freeNodes.Add(node);
+            }
+            if (fixedNodes.Count == 0) { DistributeEvenly(); return; }
+
+            fixedNodes.Sort(delegate (ColorRampNode a, ColorRampNode b) { return a.Position.CompareTo(b.Position); });
+            freeNodes.Sort(delegate (ColorRampNode a, ColorRampNode b) { return a.Position.CompareTo(b.Position); });
+
+            // 区间边界：0、各固定节点位置、1（去掉重复与过近的）
+            var bounds = new List<double> { 0.0 };
+            foreach (ColorRampNode node in fixedNodes)
+                if (node.Position > bounds[bounds.Count - 1] + 1e-9) bounds.Add(node.Position);
+            if (bounds[bounds.Count - 1] < 1 - 1e-9) bounds.Add(1.0);
+
+            int index = 0;
+            for (int i = 0; i + 1 < bounds.Count; i++)
+            {
+                double a = bounds[i], b = bounds[i + 1];
+                var inInterval = new List<ColorRampNode>();
+                while (index < freeNodes.Count && freeNodes[index].Position <= b + 1e-12)
+                {
+                    if (freeNodes[index].Position >= a - 1e-12) inInterval.Add(freeNodes[index]);
+                    index++;
+                }
+                // 区间内 k 个未绑定节点均匀分布（不占两端，端点留给边界/固定节点）
+                for (int j = 0; j < inInterval.Count; j++)
+                    inInterval[j].Position = a + (b - a) * (j + 1) / (inInterval.Count + 1);
+            }
+            Sort();
+        }
+
+        /// <summary>清除所有节点的绑定标记。</summary>
+        public void ClearBindings()
+        {
+            foreach (ColorRampNode node in Nodes) node.BindingKey = null;
         }
 
         /// <summary>按位置重新排序并重建链表。</summary>

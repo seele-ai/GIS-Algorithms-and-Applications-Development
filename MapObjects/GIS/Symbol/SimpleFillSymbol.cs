@@ -19,7 +19,7 @@ namespace GIS
         public FillOutline()
         {
             Outline = new SimpleLineSymbol();
-            Outline.Color = Color.DarkGray;
+            Outline.Color = Color.Black;
         }
 
         public FillOutline(double offset, SimpleLineSymbol outline)
@@ -127,10 +127,10 @@ namespace GIS
             _Color = CreateRandomColor(252);
         }
 
-        //初始化边界符号
+        //初始化边界符号（默认黑色边框；Outlines 允许被清空，表示“无边框面符号”）
         private void InitializeOutline()
         {
-            _Outlines.Add(new FillOutline(0, new SimpleLineSymbol { Color = Color.DarkGray }));
+            _Outlines.Add(new FillOutline(0, new SimpleLineSymbol { Color = Color.Black }));
         }
 
         #endregion

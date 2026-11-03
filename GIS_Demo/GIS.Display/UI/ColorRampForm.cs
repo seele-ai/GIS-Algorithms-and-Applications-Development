@@ -11,7 +11,7 @@ namespace GIS.Display.UI
     /// 色带显示条：上方为书签形状的竖向节点按钮，下方为 0~100 的坐标轴与用色带自身颜色渲染的色带。
     /// 支持点击选择节点、拖动节点改变位置。
     /// </summary>
-    public sealed class RampStrip : Control
+    public sealed partial class RampStrip : Control
     {
         private const int BookmarkTop = 10;
         private const int BandHeight = 38;
@@ -74,7 +74,10 @@ namespace GIS.Display.UI
             get
             {
                 int top = Height - AxisHeight - BandHeight - 4;
-                return new Rectangle(16, top, Math.Max(24, Width - 32), BandHeight);
+                // 连续渲染要左右留 buffer：最小/最大值的标签、Y 轴刻度文字才有地方放
+                int left = IsContinuous ? ContinuousMarginLeft : 16;
+                int right = IsContinuous ? ContinuousMarginRight : 16;
+                return new Rectangle(left, top, Math.Max(24, Width - left - right), BandHeight);
             }
         }
 
@@ -103,32 +106,42 @@ namespace GIS.Display.UI
             }
 
             Rectangle band = BandRect;
+            // 连续模式下色带只覆盖数据范围 [Min, Max]（横轴两端还有 KDE 的扩展区），其余模式就是整条 band
+            RectangleF rampRect = IsContinuous ? ContinuousRampRect() : band;
+
+            // 连续渲染：先画上方的 KDE 数值分布、特殊值虚线与文字（在色带、标签之下）
+            if (IsContinuous) DrawContinuousBackground(g);
 
             // 色带本体：逐列按色带取色，即“用色带自身的颜色”渲染（结果缓存为位图，避免每次重绘都逐像素取色）
-            if (bandDirty || bandCache == null || bandCache.Width != band.Width || bandCache.Height != band.Height)
+            int rampWidth = Math.Max(1, (int)Math.Round(rampRect.Width));
+            int rampHeight = Math.Max(1, (int)Math.Round(rampRect.Height));
+            if (bandDirty || bandCache == null || bandCache.Width != rampWidth || bandCache.Height != rampHeight)
             {
                 if (bandCache != null) bandCache.Dispose();
-                bandCache = new Bitmap(Math.Max(1, band.Width), Math.Max(1, band.Height));
+                bandCache = new Bitmap(rampWidth, rampHeight);
                 using (Graphics cache = Graphics.FromImage(bandCache))
                 {
-                    for (int x = 0; x < band.Width; x++)
+                    cache.Clear(Color.White);
+                    for (int x = 0; x < rampWidth; x++)
                     {
-                        double t = band.Width <= 1 ? 0 : (double)x / (band.Width - 1);
+                        double t = ContinuousRampColumn(x, rampWidth);
+                        if (t < 0) continue;   // 数据范围之外：留白
                         using (var brush = new SolidBrush(ramp.GetColor(t)))
-                            cache.FillRectangle(brush, x, 0, 1, band.Height);
+                            cache.FillRectangle(brush, x, 0, 1, rampHeight);
                     }
                 }
                 bandDirty = false;
             }
-            g.DrawImageUnscaled(bandCache, band.Left, band.Top);
+            g.DrawImageUnscaled(bandCache, (int)Math.Round(rampRect.Left), (int)Math.Round(rampRect.Top));
             using (var pen = new Pen(Color.FromArgb(120, 120, 120)))
-                g.DrawRectangle(pen, band.Left - 1, band.Top - 1, band.Width + 1, band.Height + 1);
+                g.DrawRectangle(pen, (int)Math.Round(rampRect.Left) - 1, (int)Math.Round(rampRect.Top) - 1,
+                    rampWidth + 1, rampHeight + 1);
 
-            // 坐标轴
+            // 坐标轴（0~100 表示色带位置；连续模式下只跨数据范围那一段）
             int axisY = band.Bottom + 2;
             using (var pen = new Pen(Color.FromArgb(140, 140, 140)))
             {
-                g.DrawLine(pen, band.Left, axisY, band.Right - 1, axisY);
+                g.DrawLine(pen, rampRect.Left, axisY, rampRect.Right - 1, axisY);
             }
             using (var tickPen = new Pen(Color.FromArgb(140, 140, 140)))
             using (var brush = new SolidBrush(Color.FromArgb(90, 90, 90)))
@@ -136,7 +149,7 @@ namespace GIS.Display.UI
             {
                 for (int v = 0; v <= 100; v += 10)
                 {
-                    float x = XOf(v / 100.0);
+                    float x = XOfRampPositionContinuous(v / 100.0);
                     g.DrawLine(tickPen, x, axisY, x, axisY + 4);
                     string text = v.ToString();
                     SizeF size = g.MeasureString(text, font);
@@ -147,14 +160,17 @@ namespace GIS.Display.UI
             // 选中节点的竖向参考线
             if (selected != null)
             {
-                float sx = XOf(selected.Position);
+                float sx = IsContinuous ? XOfNode(selected) : XOf(selected.Position);
+                int lineTop = IsContinuous ? FreeRowTop : BookmarkTop;
                 using (var pen = new Pen(Color.FromArgb(70, 120, 180), 1f) { DashStyle = DashStyle.Dot })
-                    g.DrawLine(pen, sx, BookmarkTop, sx, band.Bottom);
+                    g.DrawLine(pen, sx, lineTop, sx, band.Bottom);
             }
 
-            // 书签形状的节点按钮
-            foreach (ColorRampNode node in ramp.Nodes)
-                DrawBookmark(g, node, ReferenceEquals(node, selected));
+            // 标签：普通色带是书签形状；连续渲染时未绑定=向下书签、已绑定=向上书签+锁
+            if (IsContinuous) DrawContinuousTags(g);
+            else
+                foreach (ColorRampNode node in ramp.Nodes)
+                    DrawBookmark(g, node, ReferenceEquals(node, selected));
         }
 
         private void DrawBookmark(Graphics g, ColorRampNode node, bool isSelected)
@@ -213,6 +229,18 @@ namespace GIS.Display.UI
         {
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left || ramp == null) return;
+            // 连续渲染：点中标签就拖动它（可拖到特殊值虚线上绑定）
+            if (IsContinuous)
+            {
+                ColorRampNode tag = HitTestTag(e.X, e.Y);
+                if (tag != null)
+                {
+                    SelectedNode = tag;
+                    BeginDragTag(tag, e.Y);
+                    Capture = true;
+                    return;
+                }
+            }
             ColorRampNode node = HitTest(e.X, e.Y);
             if (node == null) return;
             SelectedNode = node;
@@ -223,6 +251,7 @@ namespace GIS.Display.UI
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
+            if (dragNode != null) { DragTagTo(e.X, e.Y); return; }
             if (!dragging || selected == null) return;
             selected.Position = PositionOf(e.X);
             ramp.Sort();
@@ -233,10 +262,19 @@ namespace GIS.Display.UI
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            if (dragNode != null)
+            {
+                EndDragTag();
+                Capture = false;
+                OnSelectedNodeChanged();
+                return;
+            }
             if (!dragging) return;
             dragging = false;
             Capture = false;
             OnSelectedNodeChanged();
+            var handler = BindingChanged;
+            if (handler != null && ramp != null) handler(this, EventArgs.Empty);
         }
 
         protected override void Dispose(bool disposing)
@@ -420,9 +458,18 @@ namespace GIS.Display.UI
         public event EventHandler RampApplied;
 
         public ColorRampEditor(ColorRamp source)
+            : this(source, null)
+        {
+        }
+
+        /// <summary>
+        /// 打开色带编辑器。context 不为 null 时（从连续渲染页面进来）上方会画出该字段的
+        /// KDE 数值分布与特殊值虚线，标签可以拖上去绑定，“均匀分布节点”也会尊重这些绑定。
+        /// </summary>
+        public ColorRampEditor(ColorRamp source, ContinuousStripContext context)
         {
             Name = "色带编辑器";
-            Text = "色带编辑器";
+            Text = context == null ? "色带编辑器" : "色带编辑器（连续渲染）";
             Font = new Font("Microsoft YaHei UI", 9F);
             ClientSize = new Size(980, 372);
             MinimumSize = new Size(980, 372);
@@ -436,14 +483,16 @@ namespace GIS.Display.UI
             var hint = new Label
             {
                 Dock = DockStyle.Top, Height = 26, Padding = new Padding(14, 4, 0, 0),
-                Text = "色带节点（书签）可拖动改变位置，下方的色带即按各节点的颜色与插值方式渲染。",
+                Text = context == null
+                    ? "色带节点（书签）可拖动改变位置，下方的色带即按各节点的颜色与插值方式渲染。"
+                    : "色带节点（标签）可拖动改变位置；把标签向上拖到特殊值虚线附近会自动贴合（绑定，带锁），拖回下方解除绑定。",
                 ForeColor = Color.FromArgb(90, 90, 90)
             };
 
             var row1 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 6, 0, 0), WrapContents = false };
             AddButton(row1, "新增节点", (s, e) => AddNode());
             AddButton(row1, "删除节点", (s, e) => DeleteNode());
-            AddButton(row1, "均匀分布节点", (s, e) => { working.DistributeEvenly(); Refresh1(); });
+            AddButton(row1, "均匀分布节点", (s, e) => { working.DistributeEvenlyRespectingBindings(); Refresh1(); });
             AddButton(row1, "设置节点位置", (s, e) => SetPosition());
             AddButton(row1, "设置节点颜色", (s, e) => SetColor());
             AddButton(row1, "设置节点间插值", (s, e) => SetInterpolation());
@@ -452,6 +501,7 @@ namespace GIS.Display.UI
             AddButton(row2, "保存为色带文件", (s, e) => SaveRamp());
             AddButton(row2, "读取色带文件", (s, e) => LoadRamp());
             AddButton(row2, "载入内置色带", (s, e) => LoadBuiltIn());
+            if (context != null) AddButton(row2, "清除全部绑定", (s, e) => { working.ClearBindings(); Refresh1(); });
 
             var apply = new Button { Text = "应用", Width = 84 };
             apply.Click += (s, e) => Apply(false);
@@ -478,9 +528,19 @@ namespace GIS.Display.UI
             Controls.Add(btns);
 
             strip.Ramp = working;
+            if (context != null)
+            {
+                strip.Context = context;
+                strip.BindingChanged += (s, e) => Refresh1();
+                ClientSize = new Size(980, 372 + ContinuousStripContextExtraHeight);
+                MinimumSize = ClientSize;
+            }
             UpdateInfo();
             DialogLayout.Apply(this);
         }
+
+        // 连续渲染时色带条更高（多了 KDE 分布与特殊值虚线），窗口相应加高
+        private const int ContinuousStripContextExtraHeight = 100;
 
         private static void AddButton(Control host, string text, EventHandler handler)
         {
@@ -653,19 +713,28 @@ namespace GIS.Display.UI
             ColorRampNode sel = strip.SelectedNode;
             if (sel == null)
             {
-                info.Text = string.Format("色带“{0}”：共 {1} 个节点", working.Name, working.Count);
+                info.Text = string.Format("色带“{0}”：共 {1} 个节点{2}", working.Name, working.Count,
+                    strip.IsContinuous ? "    已绑定特殊值：" + working.BoundCount + " 个" : "");
                 return;
             }
+            ContinuousMark mark = strip.MarkOf(sel);
+            string binding = mark != null ? "    绑定：" + mark.Label : "";
             info.Text = string.Format(
-                "色带“{0}”：共 {1} 个节点    当前节点：位置 {2:F1}%    颜色 #{3:X2}{4:X2}{5:X2}（A={6}）    与上一个节点间：{7}",
+                "色带“{0}”：共 {1} 个节点    当前节点：位置 {2:F1}%    颜色 #{3:X2}{4:X2}{5:X2}（A={6}）    与上一个节点间：{7}{8}",
                 working.Name, working.Count, sel.Position * 100, sel.Color.R, sel.Color.G, sel.Color.B, sel.Color.A,
-                sel.Previous == null ? "（首个节点）" : sel.InterpolationName);
+                sel.Previous == null ? "（首个节点）" : sel.InterpolationName, binding);
         }
 
         /// <summary>打开色带编辑器。返回编辑结果；用户取消且从未应用过时返回 null。</summary>
         public static ColorRamp Edit(IWin32Window owner, ColorRamp source, Action<ColorRamp> onApplied)
         {
-            using (var form = new ColorRampEditor(source))
+            return Edit(owner, source, onApplied, null);
+        }
+
+        /// <summary>打开色带编辑器（连续渲染版：带 KDE 分布与特殊值虚线的绑定界面）。</summary>
+        public static ColorRamp Edit(IWin32Window owner, ColorRamp source, Action<ColorRamp> onApplied, ContinuousStripContext context)
+        {
+            using (var form = new ColorRampEditor(source, context))
             {
                 if (onApplied != null)
                     form.RampApplied += (s, e) => onApplied(form.Working.Clone());
@@ -763,3 +832,4 @@ namespace GIS.Display.UI
         #endregion
     }
 }
+

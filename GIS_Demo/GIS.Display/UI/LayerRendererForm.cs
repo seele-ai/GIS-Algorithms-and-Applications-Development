@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -17,6 +17,7 @@ namespace GIS.Display.UI
         private SimpleRenderer simple = new SimpleRenderer();
         private UniqueValueRenderer unique = new UniqueValueRenderer();
         private ClassBreaksRenderer classBreaks = new ClassBreaksRenderer();
+        private ContinuousRenderer continuous = new ContinuousRenderer();
         private Renderer backup;
 
         private readonly Panel simplePreview = new Panel { Size = new Size(80, 40), BorderStyle = BorderStyle.FixedSingle };
@@ -30,6 +31,14 @@ namespace GIS.Display.UI
         private readonly Panel classDefault = new Panel { Size = new Size(52, 28), BorderStyle = BorderStyle.FixedSingle };
         private readonly ColorRampComboBox rampCombo = new ColorRampComboBox { Width = 224 };
         private readonly TabControl tabs = new TabControl { Dock = DockStyle.Fill };
+
+        // 连续渲染页
+        private readonly ComboBox continuousField = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
+        private readonly Panel continuousDefault = new Panel { Size = new Size(52, 28), BorderStyle = BorderStyle.FixedSingle };
+        private readonly ColorRampComboBox continuousRampCombo = new ColorRampComboBox { Width = 200 };
+        private readonly RampStrip continuousStrip = new RampStrip { Dock = DockStyle.Fill, Height = RampStrip.ContinuousHeight };
+        private readonly Label continuousInfo = new Label { Dock = DockStyle.Bottom, Height = 22, Padding = new Padding(4, 2, 0, 0) };
+        private bool suppressContinuousRamp;
 
         private bool suppressRamp;
         private ColorRamp currentRamp;
@@ -62,6 +71,7 @@ namespace GIS.Display.UI
             tabs.TabPages.Add(BuildSimpleTab());
             tabs.TabPages.Add(BuildUniqueTab());
             tabs.TabPages.Add(BuildClassTab());
+            tabs.TabPages.Add(BuildContinuousTab());
 
             int buttonHeight = ActionButtonHeight;
             var ok = CreateActionButton("确定", () => { backup = ApplyToLayer().Clone(); DialogResult = DialogResult.OK; }, 90);
@@ -96,9 +106,12 @@ namespace GIS.Display.UI
 
             if (layer.Renderer is UniqueValueRenderer) tabs.SelectedIndex = 1;
             else if (layer.Renderer is ClassBreaksRenderer) tabs.SelectedIndex = 2;
+            else if (layer.Renderer is ContinuousRenderer) tabs.SelectedIndex = 3;
             else tabs.SelectedIndex = 0;
 
             PopulateFields();
+            tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedIndex == 3) ShowContinuous(); };
+            ShowContinuous();
             DialogLayout.Apply(this);
         }
 
@@ -138,6 +151,7 @@ namespace GIS.Display.UI
         {
             if (renderer is UniqueValueRenderer) return "唯一值";
             if (renderer is ClassBreaksRenderer) return "分级";
+            if (renderer is ContinuousRenderer) return "连续";
             return "单一符号";
         }
 
@@ -214,6 +228,16 @@ namespace GIS.Display.UI
                     tabs.SelectedIndex = 2;
                     ShowClass();
                 }
+                else if (renderer is ContinuousRenderer cont)
+                {
+                    continuous = cont;
+                    SelectField(continuousField, cont.Field);
+                    continuousStrip.Context = null;   // 让 ShowContinuous 按文件里的字段重建上下文
+                    EnsureDefaultSymbols();
+                    SelectContinuousRampCombo(cont.Ramp);
+                    tabs.SelectedIndex = 3;
+                    ShowContinuous();
+                }
                 else
                 {
                     simple = renderer as SimpleRenderer ?? simple;
@@ -250,9 +274,12 @@ namespace GIS.Display.UI
         {
             if (unique.DefaultSymbol == null) unique.DefaultSymbol = BaseSymbol();
             if (classBreaks.DefaultSymbol == null) classBreaks.DefaultSymbol = BaseSymbol();
+            // 连续渲染：模板符号（默认符号）与色带都要有，否则画不出要素
+            if (continuous.Symbol == null) continuous.Symbol = BaseSymbol();
+            if (continuous.Ramp == null) continuous.Ramp = currentRamp != null ? currentRamp.Clone() : ColorRamp.CreateDefault();
         }
 
-        // 从缓存的原渲染（backup）恢复三个工作渲染器，并刷新界面。
+        // 从缓存的原渲染（backup）恢复四个工作渲染器，并刷新界面。
         private void ResetFromLayer()
         {
             simple = new SimpleRenderer();
@@ -264,12 +291,16 @@ namespace GIS.Display.UI
             else unique.DefaultSymbol = BaseSymbol();
             if (backup is ClassBreaksRenderer cr) classBreaks = (ClassBreaksRenderer)cr.Clone();
             else classBreaks.DefaultSymbol = BaseSymbol();
+            continuous = new ContinuousRenderer();
+            if (backup is ContinuousRenderer cont) continuous = (ContinuousRenderer)cont.Clone();
+            else continuous.Symbol = BaseSymbol();
             EnsureDefaultSymbols();
             // 还原图层的实际渲染（撤销之前的“应用”），并刷新地图与图层面板
             layer.Renderer = backup == null ? null : backup.Clone();
             LoadSimple();
             LoadUnique();
             LoadClass();
+            ShowContinuous();
             RendererApplied?.Invoke();
         }
 
@@ -379,6 +410,434 @@ namespace GIS.Display.UI
             return page;
         }
 
+        #region 连续渲染
+
+        /// <summary>
+        /// 连续渲染页：最上方是字段选择（只列数值型字段）与色带；
+        /// 中间是 KDE 数值分布（带 X/Y 轴、特殊值虚线、可拖上去绑定的色带标签）+ 色带；
+        /// 色带的节点编辑（新增/删除/均匀分布/位置/颜色/插值/存取文件）直接集成在本页，不再另开窗口；
+        /// 左下角是默认符号（模板符号，只换颜色）；底部按钮与其他渲染方式共用同一行。
+        /// </summary>
+        private TabPage BuildContinuousTab()
+        {
+            var page = new TabPage("连续渲染");
+
+            var top = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true, Padding = new Padding(4), MinimumSize = new Size(0, ActionButtonHeight + 8)
+            };
+            top.Controls.Add(CreateToolbarLabel("字段"));
+            AlignToolbarControl(continuousField);
+            continuousField.SelectedIndexChanged += (s, e) => OnContinuousFieldChanged();
+            top.Controls.Add(continuousField);
+            top.Controls.Add(CreateActionButton("均匀分布节点", () =>
+            {
+                if (continuous.Ramp == null) return;
+                continuous.Ramp.DistributeEvenlyRespectingBindings();
+                RefreshContinuousRamp();
+            }));
+            top.Controls.Add(CreateActionButton("清除全部绑定", () =>
+            {
+                if (continuous.Ramp == null) return;
+                continuous.Ramp.ClearBindings();
+                RefreshContinuousRamp();
+            }));
+
+            // 色带下拉框：每一项用该色带自身的颜色渲染
+            continuousRampCombo.SelectedIndexChanged += (s, e) => OnContinuousRampSelected();
+            suppressContinuousRamp = true;
+            if (continuousRampCombo.Items.Count > 0) continuousRampCombo.SelectedIndex = 0;
+            suppressContinuousRamp = false;
+            var rampRow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, Height = 34, FlowDirection = FlowDirection.RightToLeft, WrapContents = false,
+                Padding = new Padding(4, 4, 6, 0)
+            };
+            rampRow.Controls.Add(continuousRampCombo);
+            rampRow.Controls.Add(new Label { Text = "色带", AutoSize = true, Padding = new Padding(0, 6, 6, 0) });
+
+            // 色带节点编辑（原来在“编辑色带…”窗口里的功能，现直接放在本页）
+            var editRow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true, Padding = new Padding(4, 0, 4, 2)
+            };
+            editRow.Controls.Add(CreateActionButton("新增节点", AddContinuousNode));
+            editRow.Controls.Add(CreateActionButton("删除节点", DeleteContinuousNode));
+            editRow.Controls.Add(CreateActionButton("设置位置", SetContinuousNodePosition));
+            editRow.Controls.Add(CreateActionButton("设置颜色", SetContinuousNodeColor));
+            editRow.Controls.Add(CreateActionButton("设置插值", SetContinuousNodeInterpolation));
+            editRow.Controls.Add(CreateActionButton("保存色带", SaveContinuousRamp));
+            editRow.Controls.Add(CreateActionButton("读取色带", LoadContinuousRamp));
+            editRow.Controls.Add(CreateActionButton("内置色带", LoadBuiltInContinuousRamp));
+
+            var defRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(4) };
+            defRow.Controls.Add(new Label { Text = "默认符号", AutoSize = true, Padding = new Padding(0, 4, 6, 0) });
+            defRow.Controls.Add(continuousDefault);
+            continuousDefault.Paint += (s, e) => BasicGeometryDrawer.DrawSymbol(e.Graphics, continuous.Symbol, continuousDefault.ClientRectangle);
+            continuousDefault.DoubleClick += (s, e) => EditDefaultSymbol(() => continuous.Symbol, v => continuous.Symbol = v, continuousDefault);
+            continuousInfo.Text = "选择数值型字段后，上方显示数值分布，下方色带按数值取色。";
+
+            page.Controls.Add(continuousStrip);
+            page.Controls.Add(continuousInfo);
+            page.Controls.Add(defRow);
+            page.Controls.Add(editRow);
+            page.Controls.Add(rampRow);
+            page.Controls.Add(top);
+            return page;
+        }
+
+        #region 连续渲染：色带节点编辑（集成在页面里）
+
+        private void AddContinuousNode()
+        {
+            ColorRamp ramp = continuous.Ramp;
+            if (ramp == null) return;
+            ColorRampNode sel = continuousStrip.SelectedNode;
+            double position;
+            RampInterpolation interpolation = RampInterpolation.Rgb;
+            if (ramp.Count == 0) position = 0.5;
+            else if (sel == null) position = ramp.Tail.Position >= 1 ? 0.5 : (ramp.Tail.Position + 1) / 2;
+            else if (sel.Next == null)
+                position = sel.Position >= 1
+                    ? (sel.Previous == null ? 0.5 : (sel.Previous.Position + sel.Position) / 2)
+                    : (sel.Position + 1) / 2;
+            else position = (sel.Position + sel.Next.Position) / 2;
+            if (sel != null && sel.Next != null) interpolation = sel.Next.Interpolation;
+            ColorRampNode node = ramp.InsertNode(position, ramp.GetColor(position), interpolation);
+            continuousStrip.SelectedNode = node;
+            RefreshContinuousRamp();
+        }
+
+        private void DeleteContinuousNode()
+        {
+            ColorRamp ramp = continuous.Ramp;
+            if (ramp == null) return;
+            if (ramp.Count <= 2)
+            {
+                MessageBox.Show(this, "色带至少需要保留 2 个节点。", "连续渲染", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            ColorRampNode sel = continuousStrip.SelectedNode;
+            if (sel == null) return;
+            ColorRampNode next = sel.Next ?? sel.Previous;
+            ramp.RemoveNode(sel);
+            continuousStrip.SelectedNode = next;
+            RefreshContinuousRamp();
+        }
+
+        private void SetContinuousNodePosition()
+        {
+            ColorRamp ramp = continuous.Ramp;
+            ColorRampNode sel = continuousStrip.SelectedNode;
+            if (ramp == null || sel == null)
+            {
+                MessageBox.Show(this, "请先在色带上点选一个标签。", "连续渲染");
+                return;
+            }
+            decimal value = (decimal)(sel.Position * 100);
+            if (!AskNumber("设置节点位置（0~100）", "位置：", ref value, 0, 100, 1)) return;
+            sel.Position = (double)value / 100.0;
+            if (sel.IsBound) sel.BindingKey = null;   // 手改位置后就不再算绑定
+            ramp.Sort();
+            RefreshContinuousRamp();
+        }
+
+        private void SetContinuousNodeColor()
+        {
+            ColorRampNode sel = continuousStrip.SelectedNode;
+            if (sel == null)
+            {
+                MessageBox.Show(this, "请先在色带上点选一个标签。", "连续渲染");
+                return;
+            }
+            Color color = ColorPickerForm.Pick(this, sel.Color, "选择色带节点颜色（可设置透明度）");
+            if (color == Color.Empty) return;
+            sel.Color = color;
+            RefreshContinuousRamp();
+        }
+
+        private void SetContinuousNodeInterpolation()
+        {
+            ColorRampNode sel = continuousStrip.SelectedNode;
+            if (sel == null || sel.Previous == null)
+            {
+                MessageBox.Show(this, "请先选择一个不是首个节点的节点。", "连续渲染");
+                return;
+            }
+            int choice = sel.Interpolation == RampInterpolation.Hsv ? 1 : 0;
+            if (!AskChoice("设置节点与上一个节点之间的插值方式", "插值方式：", new[] { "RGB 线性插值", "HSV 插值" }, ref choice)) return;
+            sel.Interpolation = choice == 1 ? RampInterpolation.Hsv : RampInterpolation.Rgb;
+            RefreshContinuousRamp();
+        }
+
+        private void SaveContinuousRamp()
+        {
+            ColorRamp ramp = continuous.Ramp;
+            if (ramp == null) return;
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Title = "保存为自定义色带文件";
+                dialog.Filter = ColorRamp.FileFilter;
+                dialog.DefaultExt = "gcr";
+                dialog.AddExtension = true;
+                dialog.FileName = string.IsNullOrEmpty(ramp.Name) ? "自定义色带" : ramp.Name;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    ramp.Save(dialog.FileName);
+                    MessageBox.Show(this, "已保存到：\r\n" + dialog.FileName, "连续渲染",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "保存失败：" + ex.Message, "连续渲染",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private void LoadContinuousRamp()
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "读取自定义色带文件";
+                dialog.Filter = ColorRamp.FileFilter;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    ColorRamp ramp = ColorRamp.Load(dialog.FileName);
+                    continuous.Ramp = ramp;
+                    continuousRampCombo.AddRamp(ramp);
+                    SelectContinuousRampCombo(ramp);
+                    continuousStrip.Ramp = ramp;
+                    RefreshContinuousRamp();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "读取失败：" + ex.Message, "连续渲染",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private void LoadBuiltInContinuousRamp()
+        {
+            ColorRamp ramp = BuiltInRampForm.Pick(this, ColorRamp.BuiltIn());
+            if (ramp == null) return;
+            continuous.Ramp = ramp;
+            continuousRampCombo.AddRamp(ramp);
+            SelectContinuousRampCombo(ramp);
+            continuousStrip.Ramp = ramp;
+            RefreshContinuousRamp();
+        }
+
+        // 简单数值输入框（固定尺寸，避免 AutoSize + Dock 造成控件压盖）
+        private bool AskNumber(string title, string caption, ref decimal value, decimal min, decimal max, int decimals)
+        {
+            NumericUpDown input;
+            using (var form = CreatePositionDialog(title, caption, value, min, max, decimals, out input))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK) return false;
+                value = input.Value;
+                return true;
+            }
+        }
+
+        private bool AskChoice(string title, string caption, string[] choices, ref int selected)
+        {
+            ComboBox combo;
+            using (var form = CreateInterpolationDialog(title, caption, choices, selected, out combo))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK) return false;
+                selected = combo.SelectedIndex;
+                return true;
+            }
+        }
+
+        /// <summary>构造“设置节点位置”对话框（**不显示**；自检程序可直接检查其布局，避免模态窗口）。</summary>
+        public static Form CreatePositionDialog(string title, string caption, decimal value,
+            decimal min, decimal max, int decimals, out NumericUpDown input)
+        {
+            FlowLayoutPanel buttons;
+            Form form = CreateSmallDialogCore(title, 420, 150, out buttons);
+            input = new NumericUpDown
+            {
+                Minimum = min, Maximum = max, Value = Math.Max(min, Math.Min(max, value)),
+                DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : 0.1m, Width = 180
+            };
+            var grid = CreateDialogGridCore();
+            grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            grid.Controls.Add(input, 1, 0);
+            // 先加内容（Fill）再加按钮条（Bottom）：后加的 Dock=Bottom 先布置，内容区才不会被压住
+            form.Controls.Add(grid);
+            form.Controls.Add(buttons);
+            DialogLayout.Apply(form);
+            return form;
+        }
+
+        /// <summary>构造“设置插值方式”对话框（**不显示**；自检程序可直接检查其布局）。</summary>
+        public static Form CreateInterpolationDialog(string title, string caption, string[] choices, int selected, out ComboBox combo)
+        {
+            FlowLayoutPanel buttons;
+            Form form = CreateSmallDialogCore(title, 440, 150, out buttons);
+            combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+            combo.Items.AddRange(choices);
+            combo.SelectedIndex = Math.Max(0, Math.Min(choices.Length - 1, selected));
+            var grid = CreateDialogGridCore();
+            grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            grid.Controls.Add(combo, 1, 0);
+            form.Controls.Add(grid);
+            form.Controls.Add(buttons);
+            DialogLayout.Apply(form);
+            return form;
+        }
+
+        // 小对话框骨架：固定客户区 + 内容区（由调用方以 Fill 加入）+ 下方按钮条（Dock=Bottom）
+        private static Form CreateSmallDialogCore(string title, int width, int height, out FlowLayoutPanel buttons)
+        {
+            var form = new Form
+            {
+                Text = title,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                Padding = new Padding(12),
+                ClientSize = new Size(width, height),
+                AutoSize = false
+            };
+            var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
+            var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
+            buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom, Height = 46,
+                FlowDirection = FlowDirection.RightToLeft, WrapContents = false,
+                Padding = new Padding(0, 8, 0, 0)
+            };
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(ok);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+            return form;
+        }
+
+        private static TableLayoutPanel CreateDialogGridCore()
+        {
+            var grid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                AutoSize = false,
+                Padding = new Padding(0, 6, 0, 0)
+            };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            return grid;
+        }
+
+        #endregion
+
+        // 切换字段：重算数值、拉伸区间、统计量与 KDE 曲线（曲线只与数值有关，改色带不会动它）。
+        // 换了字段，原来的“标签绑定到某个特殊值”已失去意义，一并解除。
+        private void OnContinuousFieldChanged()
+        {
+            if (continuousField.SelectedIndex < 0) return;
+            string field = continuousField.SelectedItem.ToString();
+            bool fieldChanged = continuous.Field != field;
+            continuous.Field = field;
+            continuous.ClearBindingError();
+            if (continuous.Symbol == null) continuous.Symbol = BaseSymbol();
+            if (continuous.Ramp == null) continuous.Ramp = currentRamp != null ? currentRamp.Clone() : ColorRamp.CreateDefault();
+            if (fieldChanged) continuous.Ramp.ClearBindings();   // 换字段 → 取消全部绑定
+
+            double[] values = ContinuousRenderer.ValuesOf(layer.FeatureClass, field);
+            if (values.Length == 0)
+            {
+                continuousStrip.Context = null;
+                continuousInfo.Text = "字段“" + field + "”没有可用的数值。";
+                continuousDefault.Invalidate();
+                return;
+            }
+            continuous.SetRange(values.Min(), values.Max());
+            var context = ContinuousStripContext.Create(values, field);
+            continuousStrip.Context = context;
+            continuousStrip.Ramp = continuous.Ramp;
+            SelectContinuousRampCombo(continuous.Ramp);
+            string outside = context.OutsideText();
+            continuousInfo.Text = string.Format(
+                "字段“{0}”：{1} 个数值，范围 {2} ~ {3}，均值 {4}，中位数 {5}，σ {6}；把标签向上拖到虚线可绑定特殊值。{7}",
+                field, context.Values.Length,
+                ContinuousMarks.FormatValue(context.Min), ContinuousMarks.FormatValue(context.Max),
+                ContinuousMarks.FormatValue(context.Statistics.Mean),
+                ContinuousMarks.FormatValue(context.Statistics.Median),
+                ContinuousMarks.FormatValue(context.Statistics.Sigma),
+                string.IsNullOrEmpty(outside) ? "" : "  " + outside);
+            continuousDefault.Invalidate();
+            continuousStrip.Invalidate();
+        }
+
+        // 色带选择变化：只换颜色，曲线与特殊值不变
+        private void OnContinuousRampSelected()
+        {
+            if (suppressContinuousRamp) return;
+            if (continuousRampCombo.IsCustomSelected)
+            {
+                // 色带节点编辑已集成在本页，这里不再打开色带编辑器，恢复原选择即可
+                SelectContinuousRampCombo(continuous.Ramp);
+                return;
+            }
+            ColorRamp ramp = continuousRampCombo.SelectedRamp;
+            if (ramp == null) return;
+            continuous.Ramp = ramp.Clone();
+            RefreshContinuousRamp();
+        }
+
+        private void ApplyContinuousRamp(ColorRamp ramp)
+        {
+            if (ramp == null) return;
+            continuous.Ramp = ramp.Clone();
+            RefreshContinuousRamp();
+        }
+
+        // 色带（或节点绑定）变化后：只重画色带与 KDE 的填充色，曲线与数值不变
+        private void RefreshContinuousRamp()
+        {
+            if (continuousStrip.Ramp != continuous.Ramp) continuousStrip.Ramp = continuous.Ramp;
+            continuousStrip.NotifyRampChanged();
+            continuousDefault.Invalidate();
+        }
+
+        private void SelectContinuousRampCombo(ColorRamp ramp)
+        {
+            if (continuousRampCombo == null || ramp == null) return;
+            suppressContinuousRamp = true;
+            continuousRampCombo.SelectRamp(ramp);
+            suppressContinuousRamp = false;
+        }
+
+        // 按当前图层与字段刷新连续渲染页（打开窗口、还原、读取渲染符号文件后调用）
+        private void ShowContinuous()
+        {
+            if (continuous.Symbol == null) continuous.Symbol = BaseSymbol();
+            if (continuous.Ramp == null) continuous.Ramp = currentRamp != null ? currentRamp.Clone() : ColorRamp.CreateDefault();
+            SelectField(continuousField, continuous.Field);
+            if (continuousField.SelectedIndex < 0 && continuousField.Items.Count > 0) continuousField.SelectedIndex = 0;
+            continuousStrip.Ramp = continuous.Ramp;
+            // 字段没变时不重建上下文（保留用户已经拖好的标签绑定）
+            if (continuousStrip.Context == null
+                || continuousStrip.Context.FieldName != continuous.Field)
+                OnContinuousFieldChanged();
+            else
+            {
+                continuousStrip.Invalidate();
+                continuousDefault.Invalidate();
+            }
+        }
+
+        #endregion
+
         #region 色带
 
         // 下拉框选择变化：选中内置色带则直接配色；选中“自定义色带…”则进入色带编辑器
@@ -436,10 +895,14 @@ namespace GIS.Display.UI
             {
                 uniqueField.Items.Add(f.Name);
                 if (f.ValueType != FieldTypeConstant.Text && f.ValueType != FieldTypeConstant.Date && f.ValueType != FieldTypeConstant.Boolean)
+                {
                     classField.Items.Add(f.Name);
+                    continuousField.Items.Add(f.Name);   // 连续渲染只允许数值型字段
+                }
             }
             if (uniqueField.Items.Count > 0) uniqueField.SelectedIndex = 0;
             if (classField.Items.Count > 0) classField.SelectedIndex = 0;
+            if (continuousField.Items.Count > 0) continuousField.SelectedIndex = 0;
         }
 
         private void LoadSimple() => simplePreview.Invalidate();
@@ -806,6 +1269,7 @@ namespace GIS.Display.UI
         {
             if (tabIndex == 1) { if (uniqueField.SelectedIndex >= 0) unique.Field = uniqueField.SelectedItem.ToString(); return unique.Clone(); }
             if (tabIndex == 2) { if (classField.SelectedIndex >= 0) classBreaks.Field = classField.SelectedItem.ToString(); return classBreaks.Clone(); }
+            if (tabIndex == 3) { if (continuousField.SelectedIndex >= 0) continuous.Field = continuousField.SelectedItem.ToString(); return continuous.Clone(); }
             return simple.Clone();
         }
 
@@ -824,3 +1288,6 @@ namespace GIS.Display.UI
         }
     }
 }
+
+
+

@@ -209,32 +209,41 @@ namespace GIS.Display
         /// 按几何类型给出**确定**的默认符号（颜色、尺寸固定，不含随机量）。
         /// 图层面板与地图都用它：导入 shp 等“没有设置过符号”的图层时，
         /// 两侧显示同一个符号，且不会因为重绘而变色（此前图层面板每次都新建随机颜色的符号）。
+        /// 三种几何的**边框统一为黑色**（点/面的边框、线的线色）。
         /// </summary>
         public static Symbol DefaultSymbol(GeometryTypeConstant type)
         {
             if (type == GeometryTypeConstant.Point || type == GeometryTypeConstant.MultiPoint)
-                return new SimpleMarkerSymbol { Color = Color.FromArgb(183, 63, 63), Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle };
+                return new SimpleMarkerSymbol
+                {
+                    Color = Color.FromArgb(183, 63, 63), Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle,
+                    OutlineColor = Color.Black, OutlineWidth = 0.2
+                };
             if (type == GeometryTypeConstant.LineString || type == GeometryTypeConstant.MultiLineString)
-                return new SimpleLineSymbol { Color = Color.FromArgb(65, 110, 166), Size = 0.6 };
+                return new SimpleLineSymbol { Color = Color.Black, Size = 0.6 };
             return new SimpleFillSymbol
             {
                 Color = Color.FromArgb(216, 231, 207),
-                Outline = new SimpleLineSymbol { Color = Color.FromArgb(89, 123, 84), Size = 0.3 }
+                Outline = new SimpleLineSymbol { Color = Color.Black, Size = 0.3 }
             };
         }
 
-        /// <summary>为新图层使用指定的识别色；面填充保留浅色，边界使用原色。</summary>
+        /// <summary>为新图层使用指定的识别色；面填充保留浅色，边界统一用黑色（与默认符号一致）。</summary>
         public static Symbol DefaultSymbol(GeometryTypeConstant type, Color color)
         {
             if (type == GeometryTypeConstant.Point || type == GeometryTypeConstant.MultiPoint)
-                return new SimpleMarkerSymbol { Color = color, Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle };
+                return new SimpleMarkerSymbol
+                {
+                    Color = color, Size = 3, Style = SimpleMarkerSymbolStyleConstant.Circle,
+                    OutlineColor = Color.Black, OutlineWidth = 0.2
+                };
             if (type == GeometryTypeConstant.LineString || type == GeometryTypeConstant.MultiLineString)
                 return new SimpleLineSymbol { Color = color, Size = 0.6 };
             return new SimpleFillSymbol
             {
                 Color = Color.FromArgb((color.R + 2 * 255) / 3, (color.G + 2 * 255) / 3,
                     (color.B + 2 * 255) / 3),
-                Outline = new SimpleLineSymbol { Color = color, Size = 0.3 }
+                Outline = new SimpleLineSymbol { Color = Color.Black, Size = 0.3 }
             };
         }
 
@@ -369,10 +378,12 @@ namespace GIS.Display
                     using (var brush = new SolidBrush(symbol.Color)) g.FillPath(brush, path);
                 }
             }
-            // 多条边界（可偏移）
+            // 多条边界（可偏移）；边界集合为空表示“无边框面符号”，只画填充
             foreach (FillOutline outline in symbol.Outlines)
             {
                 if (outline == null || outline.Outline == null) continue;
+                if (!outline.Outline.Visible) continue;
+                if (outline.Outline.Color.A == 0) continue;   // 完全透明的边框不用画
                 float offsetPx = (float)ToPixels(outline.Offset, transform.Dpm);
                 // 外围边界向外偏移；内部边界（洞）向内偏移，使面的偏移方向始终“背离实体内部”，
                 // 即正偏移量统一表示把面整体扩张（外环外扩、洞收缩）。
