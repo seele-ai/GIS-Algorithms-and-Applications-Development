@@ -121,7 +121,7 @@ namespace GIS.Display.UI
         public const float SnapBuffer = 14f;
 
         /// <summary>特殊值标注的字号（比正文大，便于阅读）。</summary>
-        public const float MarkLabelSize = 12.5f;
+        public const float MarkLabelSize = 10f;
 
         /// <summary>已绑定标签被向下拖动超过这么多像素才解锁（防止误触）。</summary>
         public const int UnlockDragDistance = 16;
@@ -401,19 +401,12 @@ namespace GIS.Display.UI
                         g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 1, x, XAxisY - 1);
                         RectangleF rect = rects[i];
                         if (rect.IsEmpty) continue;           // 左右都放不下 → 放弃该条文字
-                        // 标注被错开时画一条细引线连回虚线，避免看不出对应关系
-                        if (rect.Left > x + 4 + 1 || rect.Right < x - 4 - 1)
-                        {
-                            float leaderX = rect.Left > x ? rect.Left - 1 : rect.Right + 1;
-                            using (var leaderPen = new Pen(Color.FromArgb(120, 120, 120), 1f))
-                                g.DrawLine(leaderPen, x, kde.Top + 5, leaderX, kde.Top + 5);
-                        }
                         var textState = g.Save();
                         try
                         {
                             g.TranslateTransform(rect.X + 1, rect.Y);
                             g.RotateTransform(90);
-                            g.DrawString(ShortLabel(mark), font, mark.Outside ? outsideBrush : brush, 0, 0);
+                            g.DrawString(mark.Label, font, mark.Outside ? outsideBrush : brush, 0, 0);
                         }
                         finally
                         {
@@ -430,8 +423,7 @@ namespace GIS.Display.UI
 
         /// <summary>
         /// 计算每条特殊值标注（竖排文字）的矩形：先放线的**右侧**，撞车时改放**左侧**；
-        /// 两侧都撞车时再向左右**错开一格**（最多三格，画一条引线连回虚线）；
-        /// 实在放不下才返回空矩形（放弃该条文字）。返回顺序与 <see cref="Marks"/> 一致。
+        /// 两侧都放不下就直接放弃该条文字（不再逐格挪位）。返回顺序与 <see cref="Marks"/> 一致。
         /// </summary>
         public List<RectangleF> ComputeMarkLabelRects(Graphics graphics)
         {
@@ -442,19 +434,14 @@ namespace GIS.Display.UI
             {
                 foreach (ContinuousMark mark in Marks)
                 {
-                    SizeF size = graphics.MeasureString(ShortLabel(mark), font);
+                    SizeF size = graphics.MeasureString(mark.Label, font);
                     float w = size.Height + 2;      // 竖排：宽 = 字高
                     float h = size.Width + 2;       // 竖排：高 = 文字长度
                     float x = MarkX(mark);
-                    // 候选位置：右侧第 0..8 格、左侧第 0..8 格（第 0 格就是紧贴虚线的位置）
-                    var candidates = new List<RectangleF>();
-                    for (int slot = 0; slot <= 8; slot++)
-                    {
-                        candidates.Add(new RectangleF(x + 3 + slot * (w + 2), plot.Top + 2, w, h));
-                        candidates.Add(new RectangleF(x - 3 - w - slot * (w + 2), plot.Top + 2, w, h));
-                    }
+                    var right = new RectangleF(x + 3, plot.Top + 2, w, h);
+                    var left = new RectangleF(x - 3 - w, plot.Top + 2, w, h);
                     RectangleF chosen = RectangleF.Empty;
-                    foreach (RectangleF candidate in candidates)
+                    foreach (RectangleF candidate in new[] { right, left })
                     {
                         if (candidate.Left < plot.Left || candidate.Right > plot.Right) continue;
                         if (placed.Any(r => r.IntersectsWith(candidate))) continue;
@@ -466,16 +453,6 @@ namespace GIS.Display.UI
                 }
             }
             return result;
-        }
-
-        // 图上显示的短文字（不带“（超出范围）”，超范围用点线+颜色区分；完整说明在信息栏）
-        private static string ShortLabel(ContinuousMark mark)
-        {
-            const string suffix = "（超出范围）";
-            string text = mark.Label ?? "";
-            if (text.EndsWith(suffix, StringComparison.Ordinal))
-                text = text.Substring(0, text.Length - suffix.Length);
-            return text.Trim();
         }
 
         // 用色带自身的颜色构造水平渐变刷（左 → 右）
