@@ -246,6 +246,8 @@ namespace GIS
         /// 没有绑定：全部均匀分布（与 <see cref="DistributeEvenly"/> 相同）。
         /// 有绑定：绑定节点停在对应特殊值的位置不动，其余节点在“0 → 各绑定节点 → 1”
         /// 划分出的每个区间内各自均匀分布。
+        /// **位置正好在 0 / 1（区间端点）的节点视为固定端点**：它们本来就在端点，缩放后仍应留在端点，
+        /// 不能被挪到区间中间。
         /// </summary>
         public void DistributeEvenlyRespectingBindings()
         {
@@ -253,7 +255,8 @@ namespace GIS
             var freeNodes = new List<ColorRampNode>();
             foreach (ColorRampNode node in Nodes)
             {
-                if (node.IsBound) fixedNodes.Add(node);
+                // 绑定节点 + 位于端点（0/1）的节点都固定不动
+                if (node.IsBound || node.Position <= 1e-9 || node.Position >= 1 - 1e-9) fixedNodes.Add(node);
                 else freeNodes.Add(node);
             }
             if (fixedNodes.Count == 0) { DistributeEvenly(); return; }
@@ -261,7 +264,7 @@ namespace GIS
             fixedNodes.Sort(delegate (ColorRampNode a, ColorRampNode b) { return a.Position.CompareTo(b.Position); });
             freeNodes.Sort(delegate (ColorRampNode a, ColorRampNode b) { return a.Position.CompareTo(b.Position); });
 
-            // 区间边界：0、各绑定节点位置、1（去掉重复与过近的）
+            // 区间边界：0、各固定节点位置、1（去掉重复与过近的）
             var bounds = new List<double> { 0.0 };
             foreach (ColorRampNode node in fixedNodes)
                 if (node.Position > bounds[bounds.Count - 1] + 1e-9) bounds.Add(node.Position);
@@ -277,7 +280,7 @@ namespace GIS
                     if (freeNodes[index].Position >= a - 1e-12) inInterval.Add(freeNodes[index]);
                     index++;
                 }
-                // 区间内 k 个未绑定节点均匀分布（不占两端，端点留给边界/绑定节点）
+                // 区间内 k 个未绑定节点均匀分布（不占两端，端点留给边界/固定节点）
                 for (int j = 0; j < inInterval.Count; j++)
                     inInterval[j].Position = a + (b - a) * (j + 1) / (inInterval.Count + 1);
             }

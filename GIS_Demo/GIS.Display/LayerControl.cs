@@ -423,53 +423,55 @@ namespace GIS.Display
             return Math.Min(fullHeight, maxHeight);
         }
 
-        // 连续渲染：标题 + 色带渐变条 + 范围文字（点击进入渲染设置）
+        /// <summary>
+        /// 连续渲染图例：**竖着的色带**（上=最大值，下=最小值）+ 右侧在对应位置标出数值
+        /// （最大、均值/中位数、最小）。点击色带进入渲染设置。
+        /// </summary>
         private int AttachContinuousLegend(ContinuousRenderer renderer)
         {
             int headerHeight = renderer.ShowHead ? Math.Max(26, Font.Height + 8) : 0;
-            int barHeight = 18;
-            int captionHeight = Font.Height + 6;
-            int contentWidth = Math.Max(120, symbolArea.ClientSize.Width);
-            int fullHeight = headerHeight + barHeight + captionHeight + 18;
-            var list = new FlowLayoutPanel
+            const int barWidth = 26;
+            const int barHeight = 104;
+            int contentWidth = Math.Max(140, symbolArea.ClientSize.Width);
+            int fullHeight = headerHeight + barHeight + 12;
+            var host = new Panel
             {
                 Location = new ScreenPoint(0, 0),
                 Size = new Size(contentWidth, fullHeight),
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                Margin = new Padding(0)
+                Margin = new Padding(0),
+                BackColor = Color.Transparent
             };
             if (headerHeight > 0)
             {
-                list.Controls.Add(new Label
+                host.Controls.Add(new Label
                 {
                     Text = renderer.HeadTitle,
-                    AutoSize = false,
+                    Location = new ScreenPoint(0, 0),
                     Size = new Size(contentWidth, headerHeight),
-                    Margin = new Padding(0),
                     Font = new Font(Font, FontStyle.Bold),
                     TextAlign = ContentAlignment.MiddleLeft,
                     Padding = new Padding(4, 0, 0, 0)
                 });
             }
+            ColorRamp ramp = renderer.Ramp;
             var bar = new Panel
             {
-                Size = new Size(Math.Max(60, contentWidth - 12), barHeight),
-                Margin = new Padding(6, 4, 6, 2),
-                Cursor = Cursors.Hand,
-                BackColor = Color.White
+                Location = new ScreenPoint(6, headerHeight + 2),
+                Size = new Size(barWidth, barHeight),
+                BackColor = Color.White,
+                Cursor = Cursors.Hand
             };
-            ColorRamp ramp = renderer.Ramp;
+            // 上=最大值、下=最小值：竖着画
             bar.Paint += (s, e) =>
             {
                 Rectangle area = bar.ClientRectangle;
                 if (ramp != null && ramp.Count > 0)
                 {
-                    for (int x = 0; x < area.Width; x++)
+                    for (int y = 0; y < area.Height; y++)
                     {
-                        double t = area.Width <= 1 ? 0 : (double)x / (area.Width - 1);
+                        double t = area.Height <= 1 ? 0 : 1.0 - (double)y / (area.Height - 1);
                         using (var brush = new SolidBrush(ramp.GetColor(t)))
-                            e.Graphics.FillRectangle(brush, x, 0, 1, area.Height - 1);
+                            e.Graphics.FillRectangle(brush, 0, y, area.Width - 1, 1);
                     }
                 }
                 using (var pen = new Pen(Color.FromArgb(130, 130, 130)))
@@ -477,20 +479,48 @@ namespace GIS.Display
             };
             bar.Click += (s, e) => RendererEditRequested?.Invoke(this);
             bar.ContextMenuStrip = menu;
-            list.Controls.Add(bar);
-            var caption = new Label
+            host.Controls.Add(bar);
+
+            // 右侧数值：最大（顶）、均值/中位数（按位置）、最小（底）
+            int labelLeft = 6 + barWidth + 6;
+            int labelWidth = Math.Max(40, contentWidth - labelLeft - 4);
+            AddValueLabel(host, labelLeft, headerHeight + 2, labelWidth,
+                ContinuousMarks.FormatValue(renderer.Maximum) + "（最大）");
+            AddValueLabel(host, labelLeft, headerHeight + 2 + barHeight - Font.Height - 2, labelWidth,
+                ContinuousMarks.FormatValue(renderer.Minimum) + "（最小）");
+            double mean = renderer.HasRange ? (renderer.Minimum + renderer.Maximum) / 2 : 0;
+            var statistics = ContinuousStatistics.Compute(ContinuousRenderer.ValuesOf(
+                Layer == null ? null : Layer.FeatureClass, renderer.Field));
+            if (statistics.Count > 0)
             {
-                Text = ContinuousMarks.FormatValue(renderer.Minimum) + "  ~  " + ContinuousMarks.FormatValue(renderer.Maximum),
-                AutoSize = false,
-                Size = new Size(Math.Max(60, contentWidth - 12), captionHeight),
-                Margin = new Padding(6, 0, 6, 0),
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-            caption.ContextMenuStrip = menu;
-            list.Controls.Add(caption);
+                mean = statistics.Mean;
+                string text = "均值 " + ContinuousMarks.FormatValue(statistics.Mean);
+                if (Math.Abs(statistics.Median - statistics.Mean) > 1e-9)
+                    text += "，中位数 " + ContinuousMarks.FormatValue(statistics.Median);
+                double t = renderer.HasRange && renderer.Maximum > renderer.Minimum
+                    ? (statistics.Mean - renderer.Minimum) / (renderer.Maximum - renderer.Minimum) : 0.5;
+                if (t < 0) t = 0;
+                if (t > 1) t = 1;
+                int y = headerHeight + 2 + (int)Math.Round((1 - t) * (barHeight - Font.Height - 2));
+                AddValueLabel(host, labelLeft, Math.Max(headerHeight + 2, y), labelWidth, text);
+            }
             symbolArea.AutoScrollMinSize = new Size(0, fullHeight);
-            symbolArea.Controls.Add(list);
+            symbolArea.Controls.Add(host);
             return fullHeight;
+        }
+
+        private void AddValueLabel(Control host, int left, int top, int width, string text)
+        {
+            var label = new Label
+            {
+                Text = text,
+                Location = new ScreenPoint(left, top),
+                Size = new Size(width, Font.Height + 4),
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoEllipsis = true
+            };
+            label.ContextMenuStrip = menu;
+            host.Controls.Add(label);
         }
 
         private void EditLegendSymbol(Renderer renderer, int index, Func<int, Symbol> getSymbol)

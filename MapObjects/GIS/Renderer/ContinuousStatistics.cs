@@ -67,10 +67,18 @@ namespace GIS
         Mean = 3,
         /// <summary>中位数</summary>
         Median = 4,
+        /// <summary>μ − 1σ</summary>
+        Minus1Sigma = 5,
+        /// <summary>μ − 2σ</summary>
+        Minus2Sigma = 6,
         /// <summary>μ − 3σ</summary>
-        Minus3Sigma = 5,
+        Minus3Sigma = 7,
+        /// <summary>μ + 1σ</summary>
+        Plus1Sigma = 8,
+        /// <summary>μ + 2σ</summary>
+        Plus2Sigma = 9,
         /// <summary>μ + 3σ</summary>
-        Plus3Sigma = 6
+        Plus3Sigma = 10
     }
 
     /// <summary>
@@ -128,7 +136,11 @@ namespace GIS
                 case ContinuousSpecialValue.Maximum: return "最大";
                 case ContinuousSpecialValue.Mean: return "均值";
                 case ContinuousSpecialValue.Median: return "中位数";
+                case ContinuousSpecialValue.Minus1Sigma: return "μ−1σ";
+                case ContinuousSpecialValue.Minus2Sigma: return "μ−2σ";
                 case ContinuousSpecialValue.Minus3Sigma: return "μ−3σ";
+                case ContinuousSpecialValue.Plus1Sigma: return "μ+1σ";
+                case ContinuousSpecialValue.Plus2Sigma: return "μ+2σ";
                 case ContinuousSpecialValue.Plus3Sigma: return "μ+3σ";
                 default: return value.ToString();
             }
@@ -149,8 +161,16 @@ namespace GIS
             candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Maximum, statistics.Max));
             candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Mean, statistics.Mean));
             candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Median, statistics.Median));
-            candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Minus3Sigma, statistics.Mean - 3 * statistics.Sigma));
-            candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Plus3Sigma, statistics.Mean + 3 * statistics.Sigma));
+            // 正态分布的 ±1σ / ±2σ / ±3σ 三组
+            for (int k = 1; k <= 3; k++)
+            {
+                ContinuousSpecialValue minus = k == 1 ? ContinuousSpecialValue.Minus1Sigma
+                    : (k == 2 ? ContinuousSpecialValue.Minus2Sigma : ContinuousSpecialValue.Minus3Sigma);
+                ContinuousSpecialValue plus = k == 1 ? ContinuousSpecialValue.Plus1Sigma
+                    : (k == 2 ? ContinuousSpecialValue.Plus2Sigma : ContinuousSpecialValue.Plus3Sigma);
+                candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(minus, statistics.Mean - k * statistics.Sigma));
+                candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(plus, statistics.Mean + k * statistics.Sigma));
+            }
             candidates.Add(new KeyValuePair<ContinuousSpecialValue, double>(ContinuousSpecialValue.Zero, 0));
 
             double span = statistics.Span;

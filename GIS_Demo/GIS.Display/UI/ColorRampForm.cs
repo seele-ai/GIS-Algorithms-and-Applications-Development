@@ -74,7 +74,10 @@ namespace GIS.Display.UI
             get
             {
                 int top = Height - AxisHeight - BandHeight - 4;
-                return new Rectangle(16, top, Math.Max(24, Width - 32), BandHeight);
+                // 连续渲染要左右留 buffer：最小/最大值的标签、Y 轴刻度文字才有地方放
+                int left = IsContinuous ? ContinuousMarginLeft : 16;
+                int right = IsContinuous ? ContinuousMarginRight : 16;
+                return new Rectangle(left, top, Math.Max(24, Width - left - right), BandHeight);
             }
         }
 
@@ -151,7 +154,7 @@ namespace GIS.Display.UI
             if (selected != null)
             {
                 float sx = XOf(selected.Position);
-                int lineTop = IsContinuous ? TagTop : BookmarkTop;
+                int lineTop = IsContinuous ? FreeRowTop : BookmarkTop;
                 using (var pen = new Pen(Color.FromArgb(70, 120, 180), 1f) { DashStyle = DashStyle.Dot })
                     g.DrawLine(pen, sx, lineTop, sx, band.Bottom);
             }
@@ -226,7 +229,7 @@ namespace GIS.Display.UI
                 if (tag != null)
                 {
                     SelectedNode = tag;
-                    BeginDragTag(tag);
+                    BeginDragTag(tag, e.Y);
                     Capture = true;
                     return;
                 }

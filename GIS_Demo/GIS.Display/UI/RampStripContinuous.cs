@@ -28,7 +28,7 @@ namespace GIS.Display.UI
         /// <summary>统计量。</summary>
         public ContinuousStatistics Statistics;
 
-        /// <summary>特殊值虚线（已合并、已剔除区间外的值）。</summary>
+        /// <summary>特殊值虚线（已合并、区间外的画在端点）。</summary>
         public List<ContinuousMark> Marks = new List<ContinuousMark>();
 
         /// <summary>KDE 曲线（0~1，按 <see cref="CurveSamples"/> 个采样点）。</summary>
@@ -81,37 +81,66 @@ namespace GIS.Display.UI
         {
             return mark == null ? "" : mark.Label;
         }
+
+        /// <summary>区间外的特殊值文字（显示在信息栏里，避免挤在图上）。</summary>
+        public string OutsideText()
+        {
+            var names = new List<string>();
+            foreach (ContinuousMark mark in Marks)
+            {
+                if (!mark.Outside) continue;
+                foreach (ContinuousSpecialValue value in mark.Values)
+                    names.Add(ContinuousMarks.NameOf(value) + " " + ContinuousMarks.FormatValue(mark.DataValue));
+            }
+            return names.Count == 0 ? "" : "区间外的特殊值：" + string.Join("、", names.ToArray());
+        }
     }
 
     /// <summary>
-    /// 色带显示条的连续渲染部分（partial）：上方 KDE 分布 + 特殊值虚线 + 可绑定的标签，下方色带。
+    /// 色带显示条的连续渲染部分（partial）：带 X/Y 轴的 KDE 分布 + 特殊值虚线 + 可绑定的标签，下方色带。
     /// 无上下文时保持原来的“色带 + 书签”外观，不影响分级/唯一值页面的色带编辑。
+    ///
+    /// 版面（自上而下）：KDE 绘图区（左 Y 轴、下 X 轴）→ X 轴刻度文字 → 已绑定标签行 → 未绑定标签行 → 色带 → 0~100 轴。
+    /// 所有位置都用同一套横向映射（两侧留 buffer），所以最小/最大值也有地方放标签。
     /// </summary>
     public sealed partial class RampStrip
     {
-        /// <summary>连续模式下标签行的高度。</summary>
-        public const int TagHeight = 30;
+        /// <summary>未绑定标签行的高度。</summary>
+        public const int TagHeight = 24;
 
-        /// <summary>连续模式下的默认高度（KDE + 标签 + 色带 + 坐标轴）。</summary>
-        public const int ContinuousHeight = 214;
+        /// <summary>已绑定标签行的高度（在未绑定标签行之上，更靠近 X 轴）。</summary>
+        public const int LockedTagHeight = 22;
+
+        /// <summary>X 轴刻度文字高度。</summary>
+        public const int AxisLabelHeight = 14;
+
+        /// <summary>连续模式下的默认高度（KDE + 轴 + 两行标签 + 色带 + 坐标轴）。</summary>
+        public const int ContinuousHeight = 244;
 
         /// <summary>吸附距离（像素）：标签拖到距虚线这么近就自动贴上。</summary>
         public const float SnapBuffer = 14f;
 
-        private const int KdeTop = 8;
-        private const float TagHalfWidth = 12f;      // 绑定标签（带锁）的半宽
-        private const float FreeTagHalfWidth = 9f;   // 未绑定标签（书签）的半宽
+        /// <summary>已绑定标签被向下拖动超过这么多像素才解锁（防止误触）。</summary>
+        public const int UnlockDragDistance = 16;
+
+        /// <summary>标签位置变化超过这么多像素才算“真的挪开了”。</summary>
+        public const float UnbindPixelThreshold = 3f;
+
+        private const int PlotTop = 6;
+        private const int ContinuousMarginLeft = 34;    // 左边留给 Y 轴刻度文字
+        private const int ContinuousMarginRight = 14;
+        private const float TagHalfWidth = 12f;         // 绑定标签（带锁）的半宽
+        private const float FreeTagHalfWidth = 8f;      // 未绑定标签（书签）的半宽
+        private const int TagLaneGap = 18;              // 绑定标签贴太紧时的横向错开量
 
         private ContinuousStripContext context;
         private ColorRampNode dragNode;
         private ContinuousMark dragTarget;
-        private ContinuousMark suppressedMark;
-        private int lastDragY;
+        private readonly HashSet<ContinuousMark> snappedMarks = new HashSet<ContinuousMark>();
         private bool dragStartedBound;
         private float dragStartPixelX;
-
-        /// <summary>标签被移动超过这么多像素才算“真的挪开了”（小于它视为单击，保持绑定）。</summary>
-        public const float UnbindPixelThreshold = 3f;
+        private int dragStartMouseY;
+        private int lastDragY;
 
         /// <summary>标签与特殊值虚线的绑定关系发生变化。</summary>
         public event EventHandler BindingChanged;
@@ -159,22 +188,27 @@ namespace GIS.Display.UI
 
         #region 布局
 
-        // 标签行：贴在色带上方
-        private int TagBottom { get { return BandRect.Top - 4; } }
-        private int TagTop { get { return TagBottom - TagHeight; } }
+        // 色带上方依次是：未绑定标签行、已绑定标签行、X 轴刻度文字、X 轴、KDE 绘图区
+        private int FreeRowBottom { get { return BandRect.Top - 2; } }
+        private int FreeRowTop { get { return FreeRowBottom - TagHeight; } }
+        private int LockedRowBottom { get { return FreeRowTop; } }
+        private int LockedRowTop { get { return LockedRowBottom - LockedTagHeight; } }
+        private int XAxisY { get { return LockedRowTop; } }
+        private int AxisLabelTop { get { return XAxisY + 1; } }
+        private int PlotBottom { get { return XAxisY - AxisLabelHeight; } }
 
-        // KDE 分布区：标签行以上
         private Rectangle KdeRect
         {
             get
             {
-                int top = KdeTop;
-                int bottom = TagTop - 16;   // 给特殊值文字留一行
-                return new Rectangle(BandRect.Left, top, BandRect.Width, Math.Max(24, bottom - top));
+                Rectangle band = BandRect;
+                int bottom = PlotBottom;
+                int top = Math.Min(PlotTop, bottom - 24);
+                return new Rectangle(band.Left, top, band.Width, Math.Max(24, bottom - top));
             }
         }
 
-        /// <summary>数值 → 横坐标（与色带同一条轴）。</summary>
+        /// <summary>数值 → 横坐标（与色带同一条轴，两侧留了 buffer）。</summary>
         public float XOfValue(double value)
         {
             if (context == null) return XOf(0);
@@ -188,24 +222,62 @@ namespace GIS.Display.UI
             return XOf(mark.Position);
         }
 
+        /// <summary>节点位置对应的横坐标（不含避让偏移）。</summary>
+        public float XOfNode(ColorRampNode node)
+        {
+            return node == null ? float.NaN : XOf(node.Position);
+        }
+
         /// <summary>标签的横坐标（考虑避开重叠后的偏移）。</summary>
         public float TagCenterOf(ColorRampNode node)
         {
             return TagCenter(node).X;
         }
 
+        /// <summary>标签所在的纵向中心（未绑定在下行，已绑定在上行）。</summary>
+        public int TagTopOf(ColorRampNode node)
+        {
+            return node != null && node.IsBound ? LockedRowTop : FreeRowTop;
+        }
+
+        /// <summary>KDE 绘图区（含左侧 Y 轴区域）。</summary>
+        public Rectangle PlotArea
+        {
+            get { return KdeRect; }
+        }
+
+        /// <summary>X 轴所在纵坐标。</summary>
+        public int XAxisLineY
+        {
+            get { return XAxisY; }
+        }
+
+        /// <summary>已绑定标签行的顶边。</summary>
+        public int LockedRowTopY
+        {
+            get { return LockedRowTop; }
+        }
+
+        /// <summary>未绑定标签行的顶边。</summary>
+        public int FreeRowTopY
+        {
+            get { return FreeRowTop; }
+        }
+
         #endregion
 
         #region 绘制
 
-        // KDE 曲线 + 渐变填充 + 特殊值虚线（在色带之前画，色带与标签盖在上面）
+        // 坐标轴 + 曲线渐变填充 + 特殊值虚线（画在色带、标签之下）
         private void DrawContinuousBackground(Graphics g)
         {
             if (context == null) return;
             Rectangle kde = KdeRect;
             context.EnsureDensity(Math.Max(24, kde.Width));
 
-            // 曲线下方：用色带颜色从左到右填充（改色带时实时变化；曲线本身不变）
+            DrawAxes(g, kde);
+
+            // 曲线下方：用色带颜色从左到右填充
             var curve = new List<PointF>();
             int samples = context.Density.Length;
             for (int i = 0; i < samples; i++)
@@ -222,22 +294,19 @@ namespace GIS.Display.UI
                     path.AddLines(curve.ToArray());
                     path.AddLine(curve[curve.Count - 1].X, kde.Bottom, curve[0].X, kde.Bottom);
                     path.CloseFigure();
-                    using (var brush = BuildGradientBrush(kde))
+                    var clip = g.Save();
+                    try
                     {
-                        GraphicsState state = g.Save();
-                        try
-                        {
-                            g.SetClip(path, CombineMode.Intersect);
-                            g.FillRectangle(brush, kde);
-                        }
-                        finally
-                        {
-                            g.Restore(state);
-                        }
+                        g.SetClip(path, CombineMode.Intersect);
+                        using (Brush brush = BuildGradientBrush(kde)) g.FillRectangle(brush, kde);
                     }
-                    using (var pen = new Pen(Color.FromArgb(200, 70, 70, 70), 1.2f))
-                        g.DrawLines(pen, curve.ToArray());
+                    finally
+                    {
+                        g.Restore(clip);
+                    }
                 }
+                using (var pen = new Pen(Color.FromArgb(200, 70, 70, 70), 1.2f))
+                    g.DrawLines(pen, curve.ToArray());
             }
             else if (context.Values.Length == 0)
             {
@@ -245,35 +314,96 @@ namespace GIS.Display.UI
                     g.DrawString("（该字段没有数值）", Font, brush, kde.Left + 8, kde.Top + 6);
             }
 
-            // 基线
-            using (var pen = new Pen(Color.FromArgb(150, 150, 150)))
-                g.DrawLine(pen, kde.Left, kde.Bottom, kde.Right, kde.Bottom);
+            DrawMarks(g, kde);
+        }
 
-            // 特殊值虚线 + 文字（文字撞在一起时跳过，避免糊成一团）
-            var labelRects = new List<RectangleF>();
-            using (var dashPen = new Pen(Color.FromArgb(150, 60, 60, 160), 1f) { DashStyle = DashStyle.Dash })
-            using (var outsidePen = new Pen(Color.FromArgb(150, 150, 120, 60), 1f) { DashStyle = DashStyle.Dot })
-            using (var brush = new SolidBrush(Color.FromArgb(60, 60, 140)))
-            using (var outsideBrush = new SolidBrush(Color.FromArgb(140, 110, 70)))
+        // Y 轴（密度 0~1）+ X 轴（数值刻度）
+        private void DrawAxes(Graphics g, Rectangle kde)
+        {
+            using (var axisPen = new Pen(Color.FromArgb(160, 160, 160)))
+            using (var tickPen = new Pen(Color.FromArgb(150, 150, 150)))
+            using (var brush = new SolidBrush(Color.FromArgb(90, 90, 90)))
             using (var font = new Font("Microsoft YaHei UI", 7.5f))
-            using (var back = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
             {
+                // Y 轴
+                g.DrawLine(axisPen, kde.Left, kde.Top, kde.Left, kde.Bottom);
+                for (int i = 0; i <= 2; i++)
+                {
+                    float y = kde.Bottom - (float)(kde.Height - 1) * i / 2f;
+                    g.DrawLine(tickPen, kde.Left - 3, y, kde.Left, y);
+                    string text = (i == 0 ? "0" : (i == 1 ? "0.5" : "1"));
+                    SizeF size = g.MeasureString(text, font);
+                    g.DrawString(text, font, brush, kde.Left - 5 - size.Width, y - size.Height / 2);
+                }
+                // Y 轴标题（竖排）
+                var state = g.Save();
+                try
+                {
+                    g.TranslateTransform(8, kde.Top + (kde.Height + 40) / 2f);
+                    g.RotateTransform(-90);
+                    using (var titleFont = new Font("Microsoft YaHei UI", 7.5f))
+                        g.DrawString("密度", titleFont, brush, 0, 0);
+                }
+                finally
+                {
+                    g.Restore(state);
+                }
+
+                // X 轴
+                g.DrawLine(axisPen, kde.Left, XAxisY, kde.Right, XAxisY);
+                DrawValueTicks(g, kde, tickPen, brush, font);
+            }
+        }
+
+        // X 轴刻度：5 个等分点，写数值（相邻太近就跳过）
+        private void DrawValueTicks(Graphics g, Rectangle kde, Pen tickPen, Brush brush, Font font)
+        {
+            const int ticks = 5;
+            float lastRight = float.MinValue;
+            for (int i = 0; i < ticks; i++)
+            {
+                double t = (double)i / (ticks - 1);
+                float x = kde.Left + (float)(t * (kde.Width - 1));
+                double value = context.Min + (context.Max - context.Min) * t;
+                string text = ContinuousMarks.FormatValue(value);
+                SizeF size = g.MeasureString(text, font);
+                g.DrawLine(tickPen, x, XAxisY, x, XAxisY + 3);
+                float left = x - size.Width / 2;
+                if (left < kde.Left) left = kde.Left;
+                if (left + size.Width > kde.Right) left = kde.Right - size.Width;
+                if (left < lastRight + 2) continue;   // 与上一个刻度文字撞车就跳过
+                g.DrawString(text, font, brush, left, AxisLabelTop);
+                lastRight = left + size.Width;
+            }
+        }
+
+        // 特殊值虚线 + 竖排文字（顶端，撞车就跳过）
+        private void DrawMarks(Graphics g, Rectangle kde)
+        {
+            using (var dashPen = new Pen(Color.FromArgb(150, 60, 60, 160), 1f) { DashStyle = DashStyle.Dash })
+            using (var outsidePen = new Pen(Color.FromArgb(150, 160, 120, 60), 1f) { DashStyle = DashStyle.Dot })
+            using (var brush = new SolidBrush(Color.FromArgb(60, 60, 140)))
+            using (var outsideBrush = new SolidBrush(Color.FromArgb(150, 120, 80)))
+            using (var font = new Font("Microsoft YaHei UI", 7.5f))
+            {
+                var placed = new List<float>();
                 foreach (ContinuousMark mark in Marks)
                 {
                     float x = MarkX(mark);
-                    // 区间外的特殊值（常见于 μ±3σ、零）画在端点，用点线并标注“超出范围”
-                    g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 2, x, TagTop - 4);
-                    SizeF size = g.MeasureString(mark.Label, font);
-                    float left = x - size.Width / 2;
-                    if (left < kde.Left) left = kde.Left;
-                    if (left + size.Width > kde.Right) left = kde.Right - size.Width;
-                    var rect = new RectangleF(left - 1, kde.Bottom - 1, size.Width + 2, size.Height);
-                    bool overlap = labelRects.Any(r => r.IntersectsWith(rect));
-                    if (!overlap)
+                    g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 1, x, XAxisY - 1);
+                    // 相邻虚线太近时，文字沿竖直方向也放不下第二个，直接跳过（信息栏里有完整列表）
+                    if (placed.Any(px => Math.Abs(px - x) < 11)) continue;
+                    placed.Add(x);
+                    var state = g.Save();
+                    try
                     {
-                        g.FillRectangle(back, rect);
-                        g.DrawString(mark.Label, font, mark.Outside ? outsideBrush : brush, left, kde.Bottom - 1);
-                        labelRects.Add(rect);
+                        g.TranslateTransform(x + 3, kde.Top + 2);
+                        g.RotateTransform(90);   // 自上而下竖排，占用 x 右侧的窄条
+                        g.DrawString(mark.Label, font, mark.Outside ? outsideBrush : brush, 0, 0);
+                    }
+                    finally
+                    {
+                        g.Restore(state);
                     }
                 }
             }
@@ -292,14 +422,13 @@ namespace GIS.Display.UI
                 positions[i] = (float)t;
             }
             var blend = new ColorBlend { Colors = colors, Positions = positions };
-            var brush = new LinearGradientBrush(
+            return new LinearGradientBrush(
                 new Rectangle(area.Left, area.Top, Math.Max(2, area.Width), Math.Max(2, area.Height)),
                 colors[0], colors[stops - 1], LinearGradientMode.Horizontal)
             { InterpolationColors = blend };
-            return brush;
         }
 
-        // 连续模式下的标签：未绑定为向下书签，已绑定为向上书签 + 锁
+        // 连续模式下的标签：已绑定在上行（朝上 + 锁），未绑定在下行（朝下书签）
         private void DrawContinuousTags(Graphics g)
         {
             if (ramp == null) return;
@@ -311,25 +440,25 @@ namespace GIS.Display.UI
                 if (bound) DrawBoundTag(g, node, center, isSelected);
                 else DrawFreeTag(g, node, center, isSelected);
             }
-            // 正在拖动并吸附到某条特殊值虚线时，画一条提示线
             if (dragTarget != null)
             {
                 float x = MarkX(dragTarget);
                 using (var pen = new Pen(Color.FromArgb(220, 30, 120, 60), 2f))
-                    g.DrawLine(pen, x, TagTop - 2, x, TagBottom + 2);
+                    g.DrawLine(pen, x, LockedRowTop - 2, x, FreeRowBottom + 2);
             }
         }
 
+        // 未绑定：朝下的书签（不再写位置数值——X 轴已给出数值）
         private void DrawFreeTag(Graphics g, ColorRampNode node, PointF center, bool isSelected)
         {
             float x = center.X;
-            int top = TagTop + 2;
-            int bottom = TagBottom;
+            int top = FreeRowTop + 2;
+            int bottom = FreeRowBottom;
             const float hw = FreeTagHalfWidth;
             var points = new[]
             {
                 new PointF(x - hw, top), new PointF(x + hw, top),
-                new PointF(x + hw, bottom - 7), new PointF(x, bottom), new PointF(x - hw, bottom - 7)
+                new PointF(x + hw, bottom - 6), new PointF(x, bottom), new PointF(x - hw, bottom - 6)
             };
             using (var brush = new SolidBrush(node.Color))
             using (var path = new GraphicsPath())
@@ -339,28 +468,21 @@ namespace GIS.Display.UI
                 using (var pen = new Pen(isSelected ? Color.FromArgb(20, 80, 160) : Color.FromArgb(120, 120, 120), isSelected ? 2.4f : 1.2f))
                     g.DrawPath(pen, path);
             }
-            using (var font = new Font("Microsoft YaHei UI", 7.5f))
-            using (var brush = new SolidBrush(isSelected ? Color.FromArgb(20, 60, 140) : Color.FromArgb(110, 110, 110)))
-            {
-                string text = (node.Position * 100).ToString("F0");
-                SizeF size = g.MeasureString(text, font);
-                g.DrawString(text, font, brush, x - size.Width / 2, top - 13);
-            }
         }
 
-        // 绑定形态：向上指的标签（尖端指向虚线），并在标签里画一把锁
+        // 已绑定：朝上的标签（尖端指向虚线），带锁
         private void DrawBoundTag(Graphics g, ColorRampNode node, PointF center, bool isSelected)
         {
             float x = center.X;
             float realX = XOf(node.Position);
-            int top = TagTop;
-            int bottom = TagBottom;
+            int top = LockedRowTop + 1;
+            int bottom = LockedRowBottom;
             const float hw = TagHalfWidth;
             var points = new[]
             {
-                new PointF(x, top), new PointF(x + hw, top + 8),
+                new PointF(x, top), new PointF(x + hw, top + 7),
                 new PointF(x + hw, bottom), new PointF(x - hw, bottom),
-                new PointF(x - hw, top + 8)
+                new PointF(x - hw, top + 7)
             };
             using (var brush = new SolidBrush(node.Color))
             using (var path = new GraphicsPath())
@@ -370,15 +492,13 @@ namespace GIS.Display.UI
                 using (var pen = new Pen(isSelected ? Color.FromArgb(20, 80, 160) : Color.FromArgb(60, 60, 60), isSelected ? 2.2f : 1.1f))
                     g.DrawPath(pen, path);
             }
-            // 标签被横向挪开时，用一条细引线连回虚线
             if (Math.Abs(x - realX) > 1.5f)
             {
                 using (var pen = new Pen(Color.FromArgb(160, 90, 90, 160), 1f))
-                    g.DrawLine(pen, x, top, realX, top - 6);
+                    g.DrawLine(pen, x, top + 1, realX, XAxisY + 1);
             }
-            // 锁定符号（.NET 的 SystemIcons 里没有锁，这里直接用 GDI+ 画一把小锁）
             int luminance = (node.Color.R * 299 + node.Color.G * 587 + node.Color.B * 114) / 1000;
-            DrawLock(g, new RectangleF(x - 5, top + 9, 10, 12),
+            DrawLock(g, new RectangleF(x - 4.5f, top + 7, 9, 11),
                 luminance < 128 ? Color.White : Color.FromArgb(40, 40, 40));
         }
 
@@ -397,22 +517,23 @@ namespace GIS.Display.UI
             }
         }
 
-        // 标签中心：绑定节点要避开相邻绑定标签（贴太紧时左右错开），用确定性的贪心排布
+        // 标签中心：已绑定标签要避开相邻的已绑定标签（贴太紧时横向错开），确定性贪心排布
         private PointF TagCenter(ColorRampNode node)
         {
             if (node == null) return new PointF(0, 0);
-            if (!node.IsBound || context == null) return new PointF(XOf(node.Position), TagTop);
+            if (!node.IsBound || context == null) return new PointF(XOf(node.Position), FreeRowTop);
             Rectangle band = BandRect;
             float realX = XOf(node.Position);
             float half = TagHalfWidth;
             var placed = new List<float>();
+            int order = TagOrder(node);
             foreach (ColorRampNode other in ramp.Nodes)
             {
                 if (!other.IsBound || ReferenceEquals(other, node)) continue;
-                if (TagOrder(other) >= TagOrder(node)) continue;
-                placed.Add(TagCenterWithoutOffset(other));
+                if (TagOrder(other) >= order) continue;
+                placed.Add(XOf(other.Position));
             }
-            float[] candidates = { 0f, 18f, -18f, 40f, -40f };
+            float[] candidates = { 0f, TagLaneGap, -TagLaneGap, 2 * TagLaneGap, -2 * TagLaneGap };
             float chosen = realX;
             foreach (float candidate in candidates)
             {
@@ -424,16 +545,10 @@ namespace GIS.Display.UI
                     if (Math.Abs(other - x) < 2 * half + 2) { clash = true; break; }
                 if (!clash) { chosen = x; break; }
             }
-            return new PointF(chosen, TagTop);
+            return new PointF(chosen, LockedRowTop);
         }
 
-        // 绑定标签的“原始”横坐标（不含避让偏移），用于贪心排布
-        private float TagCenterWithoutOffset(ColorRampNode node)
-        {
-            return XOf(node.Position);
-        }
-
-        // 绑定标签的排布顺序（按位置从左到右，位置相同按绑定标识）
+        // 已绑定标签的排布顺序（按位置从左到右，位置相同按绑定标识）
         private int TagOrder(ColorRampNode node)
         {
             int order = 0;
@@ -507,7 +622,7 @@ namespace GIS.Display.UI
 
         #region 鼠标拖动
 
-        /// <summary>命中测试：返回鼠标下的标签节点。</summary>
+        /// <summary>命中测试：返回鼠标下的标签节点（同时检查两行标签）。</summary>
         public ColorRampNode HitTestTag(int px, int py)
         {
             if (ramp == null) return null;
@@ -516,8 +631,11 @@ namespace GIS.Display.UI
             foreach (ColorRampNode node in ramp.Nodes)
             {
                 PointF center = TagCenter(node);
-                float half = node.IsBound ? TagHalfWidth : FreeTagHalfWidth;
-                var bounds = new RectangleF(center.X - half, TagTop, 2 * half, TagBottom - TagTop + 6);
+                bool bound = node.IsBound && MarkOf(node) != null;
+                float half = bound ? TagHalfWidth : FreeTagHalfWidth;
+                int top = bound ? LockedRowTop : FreeRowTop;
+                int bottom = bound ? LockedRowBottom : FreeRowBottom;
+                var bounds = new RectangleF(center.X - half, top, 2 * half, bottom - top + 4);
                 if (!bounds.Contains(px, py)) continue;
                 float distance = Math.Abs(px - center.X);
                 if (distance < bestDistance) { bestDistance = distance; best = node; }
@@ -528,53 +646,91 @@ namespace GIS.Display.UI
         /// <summary>开始拖动一个标签（鼠标按下时调用）。</summary>
         public void BeginDragTag(ColorRampNode node)
         {
-            dragNode = node;
-            dragTarget = null;
-            dragStartedBound = node != null && node.IsBound;
-            dragStartPixelX = node == null ? 0 : XOf(node.Position);
-            // 已绑定的标签再次拖动时，本次拖动**不再**吸附回同一条虚线，
-            // 这样用户想把它拖到具体数值时不会被自动贴合干扰
-            suppressedMark = dragStartedBound ? MarkOf(node) : null;
+            BeginDragTag(node, 0);
         }
 
-        /// <summary>拖动中：水平位置跟随鼠标；靠近特殊值虚线时自动吸附，拖到标签行以下则解除绑定。</summary>
+        /// <summary>开始拖动一个标签，y 为按下时的鼠标纵坐标（用于判断“向下拖动解锁”）。</summary>
+        public void BeginDragTag(ColorRampNode node, int mouseY)
+        {
+            dragNode = node;
+            dragTarget = null;
+            snappedMarks.Clear();
+            dragStartedBound = node != null && node.IsBound;
+            dragStartPixelX = node == null ? 0 : XOf(node.Position);
+            dragStartMouseY = mouseY;
+            lastDragY = mouseY;
+        }
+
+        /// <summary>
+        /// 拖动中。未绑定标签：跟手移动，靠近特殊值虚线（14 像素内）时吸附；
+        /// **每条虚线在一次拖动中只吸附一次**（贴过又拖开，再路过它就不再吸附，方便设精确值）。
+        /// 已绑定的标签：不能自由移动，只有向下拖动（超过 16 像素）才会在松手时解锁。
+        /// </summary>
         public void DragTagTo(int px, int py)
         {
             if (dragNode == null || ramp == null) return;
             lastDragY = py;
-            dragTarget = null;
-            bool inTagZone = py < TagBottom + 2;
+            if (dragStartedBound)
+            {
+                // 已绑定：位置锁定在虚线上，不接受横向/向上的拖动
+                dragTarget = null;
+                Invalidate();
+                return;
+            }
+            bool inTagZone = py < FreeRowBottom + 4;
+            ContinuousMark candidate = null;
             if (context != null && inTagZone)
             {
                 float best = SnapBuffer;
                 foreach (ContinuousMark mark in Marks)
                 {
-                    if (ReferenceEquals(mark, suppressedMark)) continue;
+                    if (snappedMarks.Contains(mark)) continue;
                     float dx = Math.Abs(MarkX(mark) - px);
-                    if (dx <= best) { best = dx; dragTarget = mark; }
+                    if (dx <= best) { best = dx; candidate = mark; }
                 }
             }
-            if (dragTarget != null) dragNode.Position = dragTarget.Position;
-            else dragNode.Position = PositionOf(px);
+            // 本次拖动已经贴过的虚线：离开它的吸附范围后记下来，之后不再吸附它
+            if (dragTarget != null && candidate != dragTarget)
+                snappedMarks.Add(dragTarget);
+            if (candidate != null && candidate != dragTarget)
+            {
+                dragTarget = candidate;
+                dragNode.Position = candidate.Position;
+            }
+            else if (candidate == null)
+            {
+                dragTarget = null;
+                dragNode.Position = PositionOf(px);
+            }
             ramp.Sort();
             bandDirty = true;
             Invalidate();
         }
 
-        /// <summary>结束拖动：吸附到了虚线就绑定；已绑定的标签被拖离该虚线（或拖到下方）则解除绑定。</summary>
+        /// <summary>结束拖动：未绑定标签吸附到虚线则绑定；已绑定标签向下拖（>16px）则解锁。</summary>
         public void EndDragTag()
         {
             if (dragNode == null) return;
             ColorRampNode node = dragNode;
             ContinuousMark target = dragTarget;
-            bool belowTagZone = lastDragY >= TagBottom + 2;
-            float movedPixels = Math.Abs(XOf(node.Position) - dragStartPixelX);
-            bool movedAway = node.IsBound && movedPixels > UnbindPixelThreshold;
+            bool draggedDown = lastDragY - dragStartMouseY >= UnlockDragDistance;
+            bool wasBound = dragStartedBound;
             dragNode = null;
             dragTarget = null;
-            suppressedMark = null;
-            if (target != null) BindTo(node, target);
-            else if (node.IsBound && (belowTagZone || movedAway)) Unbind(node);
+            snappedMarks.Clear();
+            if (wasBound)
+            {
+                // 锁定形态只能“向下拖动解锁”，其余拖动一律保持锁定与位置
+                if (draggedDown) Unbind(node);
+            }
+            else if (target != null)
+            {
+                BindTo(node, target);
+            }
+            else if (node.IsBound && Math.Abs(XOf(node.Position) - dragStartPixelX) > UnbindPixelThreshold)
+            {
+                Unbind(node);
+            }
             Invalidate();
         }
 
@@ -583,11 +739,10 @@ namespace GIS.Display.UI
         {
             dragNode = null;
             dragTarget = null;
-            suppressedMark = null;
+            snappedMarks.Clear();
             Invalidate();
         }
 
         #endregion
     }
 }
-
