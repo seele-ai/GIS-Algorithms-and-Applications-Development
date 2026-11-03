@@ -115,10 +115,13 @@ namespace GIS.Display.UI
         public const int AxisLabelHeight = 14;
 
         /// <summary>连续模式下的默认高度（KDE + 轴 + 两行标签 + 色带 + 坐标轴）。</summary>
-        public const int ContinuousHeight = 244;
+        public const int ContinuousHeight = 300;
 
         /// <summary>吸附距离（像素）：标签拖到距虚线这么近就自动贴上。</summary>
         public const float SnapBuffer = 14f;
+
+        /// <summary>特殊值标注的字号（比正文大，便于阅读）。</summary>
+        public const float MarkLabelSize = 12.5f;
 
         /// <summary>已绑定标签被向下拖动超过这么多像素才解锁（防止误触）。</summary>
         public const int UnlockDragDistance = 16;
@@ -377,36 +380,102 @@ namespace GIS.Display.UI
             }
         }
 
-        // 特殊值虚线 + 竖排文字（顶端，撞车就跳过）
+        // 特殊值虚线 + 竖排文字（顶端；先试线的右侧，撞车再试左侧，两边都放不下才跳过）
         private void DrawMarks(Graphics g, Rectangle kde)
         {
+            List<RectangleF> rects = ComputeMarkLabelRects(g);
             using (var dashPen = new Pen(Color.FromArgb(150, 60, 60, 160), 1f) { DashStyle = DashStyle.Dash })
             using (var outsidePen = new Pen(Color.FromArgb(150, 160, 120, 60), 1f) { DashStyle = DashStyle.Dot })
             using (var brush = new SolidBrush(Color.FromArgb(60, 60, 140)))
             using (var outsideBrush = new SolidBrush(Color.FromArgb(150, 120, 80)))
-            using (var font = new Font("Microsoft YaHei UI", 7.5f))
+            using (var font = new Font("Microsoft YaHei UI", MarkLabelSize))
             {
-                var placed = new List<float>();
-                foreach (ContinuousMark mark in Marks)
+                var state = g.Save();
+                try
                 {
-                    float x = MarkX(mark);
-                    g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 1, x, XAxisY - 1);
-                    // 相邻虚线太近时，文字沿竖直方向也放不下第二个，直接跳过（信息栏里有完整列表）
-                    if (placed.Any(px => Math.Abs(px - x) < 11)) continue;
-                    placed.Add(x);
-                    var state = g.Save();
-                    try
+                    g.SetClip(kde, CombineMode.Intersect);   // 文字不越出绘图区
+                    for (int i = 0; i < Marks.Count; i++)
                     {
-                        g.TranslateTransform(x + 3, kde.Top + 2);
-                        g.RotateTransform(90);   // 自上而下竖排，占用 x 右侧的窄条
-                        g.DrawString(mark.Label, font, mark.Outside ? outsideBrush : brush, 0, 0);
-                    }
-                    finally
-                    {
-                        g.Restore(state);
+                        ContinuousMark mark = Marks[i];
+                        float x = MarkX(mark);
+                        g.DrawLine(mark.Outside ? outsidePen : dashPen, x, kde.Top + 1, x, XAxisY - 1);
+                        RectangleF rect = rects[i];
+                        if (rect.IsEmpty) continue;           // 左右都放不下 → 放弃该条文字
+                        // 标注被错开时画一条细引线连回虚线，避免看不出对应关系
+                        if (rect.Left > x + 4 + 1 || rect.Right < x - 4 - 1)
+                        {
+                            float leaderX = rect.Left > x ? rect.Left - 1 : rect.Right + 1;
+                            using (var leaderPen = new Pen(Color.FromArgb(120, 120, 120), 1f))
+                                g.DrawLine(leaderPen, x, kde.Top + 5, leaderX, kde.Top + 5);
+                        }
+                        var textState = g.Save();
+                        try
+                        {
+                            g.TranslateTransform(rect.X + 1, rect.Y);
+                            g.RotateTransform(90);
+                            g.DrawString(ShortLabel(mark), font, mark.Outside ? outsideBrush : brush, 0, 0);
+                        }
+                        finally
+                        {
+                            g.Restore(textState);
+                        }
                     }
                 }
+                finally
+                {
+                    g.Restore(state);
+                }
             }
+        }
+
+        /// <summary>
+        /// 计算每条特殊值标注（竖排文字）的矩形：先放线的**右侧**，撞车时改放**左侧**；
+        /// 两侧都撞车时再向左右**错开一格**（最多三格，画一条引线连回虚线）；
+        /// 实在放不下才返回空矩形（放弃该条文字）。返回顺序与 <see cref="Marks"/> 一致。
+        /// </summary>
+        public List<RectangleF> ComputeMarkLabelRects(Graphics graphics)
+        {
+            var result = new List<RectangleF>();
+            var placed = new List<RectangleF>();
+            Rectangle plot = KdeRect;
+            using (var font = new Font("Microsoft YaHei UI", MarkLabelSize))
+            {
+                foreach (ContinuousMark mark in Marks)
+                {
+                    SizeF size = graphics.MeasureString(ShortLabel(mark), font);
+                    float w = size.Height + 2;      // 竖排：宽 = 字高
+                    float h = size.Width + 2;       // 竖排：高 = 文字长度
+                    float x = MarkX(mark);
+                    // 候选位置：右侧第 0..8 格、左侧第 0..8 格（第 0 格就是紧贴虚线的位置）
+                    var candidates = new List<RectangleF>();
+                    for (int slot = 0; slot <= 8; slot++)
+                    {
+                        candidates.Add(new RectangleF(x + 3 + slot * (w + 2), plot.Top + 2, w, h));
+                        candidates.Add(new RectangleF(x - 3 - w - slot * (w + 2), plot.Top + 2, w, h));
+                    }
+                    RectangleF chosen = RectangleF.Empty;
+                    foreach (RectangleF candidate in candidates)
+                    {
+                        if (candidate.Left < plot.Left || candidate.Right > plot.Right) continue;
+                        if (placed.Any(r => r.IntersectsWith(candidate))) continue;
+                        chosen = candidate;
+                        placed.Add(candidate);
+                        break;
+                    }
+                    result.Add(chosen);
+                }
+            }
+            return result;
+        }
+
+        // 图上显示的短文字（不带“（超出范围）”，超范围用点线+颜色区分；完整说明在信息栏）
+        private static string ShortLabel(ContinuousMark mark)
+        {
+            const string suffix = "（超出范围）";
+            string text = mark.Label ?? "";
+            if (text.EndsWith(suffix, StringComparison.Ordinal))
+                text = text.Substring(0, text.Length - suffix.Length);
+            return text.Trim();
         }
 
         // 用色带自身的颜色构造水平渐变刷（左 → 右）
@@ -517,12 +586,12 @@ namespace GIS.Display.UI
             }
         }
 
-        // 标签中心：已绑定标签要避开相邻的已绑定标签（贴太紧时横向错开），确定性贪心排布
+        // 标签中心：绑定标签以“线”为中心（最左/最右也允许半个标签伸出色带范围，
+        // 因为两侧留了 buffer；只要不超出控件即可），相邻标签贴太紧时再横向错开。
         private PointF TagCenter(ColorRampNode node)
         {
             if (node == null) return new PointF(0, 0);
             if (!node.IsBound || context == null) return new PointF(XOf(node.Position), FreeRowTop);
-            Rectangle band = BandRect;
             float realX = XOf(node.Position);
             float half = TagHalfWidth;
             var placed = new List<float>();
@@ -531,21 +600,33 @@ namespace GIS.Display.UI
             {
                 if (!other.IsBound || ReferenceEquals(other, node)) continue;
                 if (TagOrder(other) >= order) continue;
-                placed.Add(XOf(other.Position));
+                placed.Add(TagCenterOfLane(other));
             }
             float[] candidates = { 0f, TagLaneGap, -TagLaneGap, 2 * TagLaneGap, -2 * TagLaneGap };
-            float chosen = realX;
+            float chosen = ClampTag(realX, half);
             foreach (float candidate in candidates)
             {
-                float x = realX + candidate;
-                if (x - half < band.Left + 2) x = band.Left + 2 + half;
-                if (x + half > band.Right - 2) x = band.Right - 2 - half;
+                float x = ClampTag(realX + candidate, half);
                 bool clash = false;
                 foreach (float other in placed)
                     if (Math.Abs(other - x) < 2 * half + 2) { clash = true; break; }
                 if (!clash) { chosen = x; break; }
             }
             return new PointF(chosen, LockedRowTop);
+        }
+
+        // 只保证标签不超出控件（不再把它挤进色带范围，否则端点处会变成“边对齐”而不是“中心对齐”）
+        private float ClampTag(float x, float half)
+        {
+            if (x - half < 1) return 1 + half;
+            if (x + half > Width - 1) return Width - 1 - half;
+            return x;
+        }
+
+        // 已绑定标签的理想横坐标（用于避让计算，不含避让偏移）
+        private float TagCenterOfLane(ColorRampNode node)
+        {
+            return ClampTag(XOf(node.Position), TagHalfWidth);
         }
 
         // 已绑定标签的排布顺序（按位置从左到右，位置相同按绑定标识）

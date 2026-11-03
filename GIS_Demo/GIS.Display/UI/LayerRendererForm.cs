@@ -633,34 +633,23 @@ namespace GIS.Display.UI
             RefreshContinuousRamp();
         }
 
-        // 简单数值输入框（色带编辑器里的同类对话框是私有的，这里给连续渲染页用）
+        // 简单数值输入框（固定尺寸，避免 AutoSize + Dock 造成控件压盖）
         private bool AskNumber(string title, string caption, ref decimal value, decimal min, decimal max, int decimals)
         {
-            using (var form = new Form
-            {
-                Text = title, FormBorderStyle = FormBorderStyle.FixedDialog,
-                StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false,
-                ShowInTaskbar = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Font = Font, Padding = new Padding(12)
-            })
+            FlowLayoutPanel buttons;
+            using (var form = CreateSmallDialog(title, 420, 150, out buttons))
             {
                 var input = new NumericUpDown
                 {
                     Minimum = min, Maximum = max, Value = Math.Max(min, Math.Min(max, value)),
-                    DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : 0.1m, Width = 160
+                    DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : 0.1m, Width = 180
                 };
-                var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
-                var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
-                var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Bottom, Padding = new Padding(0, 8, 0, 0) };
-                buttons.Controls.Add(cancel);
-                buttons.Controls.Add(ok);
-                var row = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top };
-                row.Controls.Add(new Label { Text = caption, AutoSize = true, Padding = new Padding(0, 4, 6, 0) });
-                row.Controls.Add(input);
-                form.Controls.Add(row);
+                var grid = CreateDialogGrid();
+                grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+                grid.Controls.Add(input, 1, 0);
+                // 先加内容（Fill）再加按钮条（Bottom）：后加的 Dock=Bottom 先布置，内容区才不会被压住
+                form.Controls.Add(grid);
                 form.Controls.Add(buttons);
-                form.AcceptButton = ok;
-                form.CancelButton = cancel;
                 DialogLayout.Apply(form);
                 if (form.ShowDialog(this) != DialogResult.OK) return false;
                 value = input.Value;
@@ -670,34 +659,65 @@ namespace GIS.Display.UI
 
         private bool AskChoice(string title, string caption, string[] choices, ref int selected)
         {
-            using (var form = new Form
+            FlowLayoutPanel buttons;
+            using (var form = CreateSmallDialog(title, 440, 150, out buttons))
             {
-                Text = title, FormBorderStyle = FormBorderStyle.FixedDialog,
-                StartPosition = FormStartPosition.CenterParent, MaximizeBox = false, MinimizeBox = false,
-                ShowInTaskbar = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Font = Font, Padding = new Padding(12)
-            })
-            {
-                var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
+                var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
                 combo.Items.AddRange(choices);
                 combo.SelectedIndex = Math.Max(0, Math.Min(choices.Length - 1, selected));
-                var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
-                var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
-                var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Bottom, Padding = new Padding(0, 8, 0, 0) };
-                buttons.Controls.Add(cancel);
-                buttons.Controls.Add(ok);
-                var row = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top };
-                row.Controls.Add(new Label { Text = caption, AutoSize = true, Padding = new Padding(0, 4, 6, 0) });
-                row.Controls.Add(combo);
-                form.Controls.Add(row);
+                var grid = CreateDialogGrid();
+                grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+                grid.Controls.Add(combo, 1, 0);
+                form.Controls.Add(grid);
                 form.Controls.Add(buttons);
-                form.AcceptButton = ok;
-                form.CancelButton = cancel;
                 DialogLayout.Apply(form);
                 if (form.ShowDialog(this) != DialogResult.OK) return false;
                 selected = combo.SelectedIndex;
                 return true;
             }
+        }
+
+        // 小对话框骨架：固定客户区 + 内容区（由调用方以 Fill 加入）+ 下方按钮条（Dock=Bottom）
+        private Form CreateSmallDialog(string title, int width, int height, out FlowLayoutPanel buttons)
+        {
+            var form = new Form
+            {
+                Text = title,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false,
+                Font = Font,
+                Padding = new Padding(12),
+                ClientSize = new Size(width, height),
+                AutoSize = false
+            };
+            var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Width = 84 };
+            var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 84 };
+            buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom, Height = 46,
+                FlowDirection = FlowDirection.RightToLeft, WrapContents = false,
+                Padding = new Padding(0, 8, 0, 0)
+            };
+            buttons.Controls.Add(cancel);
+            buttons.Controls.Add(ok);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+            return form;
+        }
+
+        private TableLayoutPanel CreateDialogGrid()
+        {
+            var grid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                AutoSize = false,
+                Padding = new Padding(0, 6, 0, 0)
+            };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            return grid;
         }
 
         #endregion
