@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -636,21 +636,9 @@ namespace GIS.Display.UI
         // 简单数值输入框（固定尺寸，避免 AutoSize + Dock 造成控件压盖）
         private bool AskNumber(string title, string caption, ref decimal value, decimal min, decimal max, int decimals)
         {
-            FlowLayoutPanel buttons;
-            using (var form = CreateSmallDialog(title, 420, 150, out buttons))
+            NumericUpDown input;
+            using (var form = CreatePositionDialog(title, caption, value, min, max, decimals, out input))
             {
-                var input = new NumericUpDown
-                {
-                    Minimum = min, Maximum = max, Value = Math.Max(min, Math.Min(max, value)),
-                    DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : 0.1m, Width = 180
-                };
-                var grid = CreateDialogGrid();
-                grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-                grid.Controls.Add(input, 1, 0);
-                // 先加内容（Fill）再加按钮条（Bottom）：后加的 Dock=Bottom 先布置，内容区才不会被压住
-                form.Controls.Add(grid);
-                form.Controls.Add(buttons);
-                DialogLayout.Apply(form);
                 if (form.ShowDialog(this) != DialogResult.OK) return false;
                 value = input.Value;
                 return true;
@@ -659,26 +647,55 @@ namespace GIS.Display.UI
 
         private bool AskChoice(string title, string caption, string[] choices, ref int selected)
         {
-            FlowLayoutPanel buttons;
-            using (var form = CreateSmallDialog(title, 440, 150, out buttons))
+            ComboBox combo;
+            using (var form = CreateInterpolationDialog(title, caption, choices, selected, out combo))
             {
-                var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
-                combo.Items.AddRange(choices);
-                combo.SelectedIndex = Math.Max(0, Math.Min(choices.Length - 1, selected));
-                var grid = CreateDialogGrid();
-                grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-                grid.Controls.Add(combo, 1, 0);
-                form.Controls.Add(grid);
-                form.Controls.Add(buttons);
-                DialogLayout.Apply(form);
                 if (form.ShowDialog(this) != DialogResult.OK) return false;
                 selected = combo.SelectedIndex;
                 return true;
             }
         }
 
+        /// <summary>构造“设置节点位置”对话框（**不显示**；自检程序可直接检查其布局，避免模态窗口）。</summary>
+        public static Form CreatePositionDialog(string title, string caption, decimal value,
+            decimal min, decimal max, int decimals, out NumericUpDown input)
+        {
+            FlowLayoutPanel buttons;
+            Form form = CreateSmallDialogCore(title, 420, 150, out buttons);
+            input = new NumericUpDown
+            {
+                Minimum = min, Maximum = max, Value = Math.Max(min, Math.Min(max, value)),
+                DecimalPlaces = decimals, Increment = decimals == 0 ? 1 : 0.1m, Width = 180
+            };
+            var grid = CreateDialogGridCore();
+            grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            grid.Controls.Add(input, 1, 0);
+            // 先加内容（Fill）再加按钮条（Bottom）：后加的 Dock=Bottom 先布置，内容区才不会被压住
+            form.Controls.Add(grid);
+            form.Controls.Add(buttons);
+            DialogLayout.Apply(form);
+            return form;
+        }
+
+        /// <summary>构造“设置插值方式”对话框（**不显示**；自检程序可直接检查其布局）。</summary>
+        public static Form CreateInterpolationDialog(string title, string caption, string[] choices, int selected, out ComboBox combo)
+        {
+            FlowLayoutPanel buttons;
+            Form form = CreateSmallDialogCore(title, 440, 150, out buttons);
+            combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+            combo.Items.AddRange(choices);
+            combo.SelectedIndex = Math.Max(0, Math.Min(choices.Length - 1, selected));
+            var grid = CreateDialogGridCore();
+            grid.Controls.Add(new Label { Text = caption, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            grid.Controls.Add(combo, 1, 0);
+            form.Controls.Add(grid);
+            form.Controls.Add(buttons);
+            DialogLayout.Apply(form);
+            return form;
+        }
+
         // 小对话框骨架：固定客户区 + 内容区（由调用方以 Fill 加入）+ 下方按钮条（Dock=Bottom）
-        private Form CreateSmallDialog(string title, int width, int height, out FlowLayoutPanel buttons)
+        private static Form CreateSmallDialogCore(string title, int width, int height, out FlowLayoutPanel buttons)
         {
             var form = new Form
             {
@@ -686,7 +703,7 @@ namespace GIS.Display.UI
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 StartPosition = FormStartPosition.CenterParent,
                 MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false,
-                Font = Font,
+                Font = new Font("Microsoft YaHei UI", 10F),
                 Padding = new Padding(12),
                 ClientSize = new Size(width, height),
                 AutoSize = false
@@ -706,7 +723,7 @@ namespace GIS.Display.UI
             return form;
         }
 
-        private TableLayoutPanel CreateDialogGrid()
+        private static TableLayoutPanel CreateDialogGridCore()
         {
             var grid = new TableLayoutPanel
             {
@@ -1271,5 +1288,6 @@ namespace GIS.Display.UI
         }
     }
 }
+
 
 

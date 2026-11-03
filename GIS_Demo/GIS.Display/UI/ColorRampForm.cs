@@ -106,35 +106,42 @@ namespace GIS.Display.UI
             }
 
             Rectangle band = BandRect;
+            // 连续模式下色带只覆盖数据范围 [Min, Max]（横轴两端还有 KDE 的扩展区），其余模式就是整条 band
+            RectangleF rampRect = IsContinuous ? ContinuousRampRect() : band;
 
             // 连续渲染：先画上方的 KDE 数值分布、特殊值虚线与文字（在色带、标签之下）
             if (IsContinuous) DrawContinuousBackground(g);
 
             // 色带本体：逐列按色带取色，即“用色带自身的颜色”渲染（结果缓存为位图，避免每次重绘都逐像素取色）
-            if (bandDirty || bandCache == null || bandCache.Width != band.Width || bandCache.Height != band.Height)
+            int rampWidth = Math.Max(1, (int)Math.Round(rampRect.Width));
+            int rampHeight = Math.Max(1, (int)Math.Round(rampRect.Height));
+            if (bandDirty || bandCache == null || bandCache.Width != rampWidth || bandCache.Height != rampHeight)
             {
                 if (bandCache != null) bandCache.Dispose();
-                bandCache = new Bitmap(Math.Max(1, band.Width), Math.Max(1, band.Height));
+                bandCache = new Bitmap(rampWidth, rampHeight);
                 using (Graphics cache = Graphics.FromImage(bandCache))
                 {
-                    for (int x = 0; x < band.Width; x++)
+                    cache.Clear(Color.White);
+                    for (int x = 0; x < rampWidth; x++)
                     {
-                        double t = band.Width <= 1 ? 0 : (double)x / (band.Width - 1);
+                        double t = ContinuousRampColumn(x, rampWidth);
+                        if (t < 0) continue;   // 数据范围之外：留白
                         using (var brush = new SolidBrush(ramp.GetColor(t)))
-                            cache.FillRectangle(brush, x, 0, 1, band.Height);
+                            cache.FillRectangle(brush, x, 0, 1, rampHeight);
                     }
                 }
                 bandDirty = false;
             }
-            g.DrawImageUnscaled(bandCache, band.Left, band.Top);
+            g.DrawImageUnscaled(bandCache, (int)Math.Round(rampRect.Left), (int)Math.Round(rampRect.Top));
             using (var pen = new Pen(Color.FromArgb(120, 120, 120)))
-                g.DrawRectangle(pen, band.Left - 1, band.Top - 1, band.Width + 1, band.Height + 1);
+                g.DrawRectangle(pen, (int)Math.Round(rampRect.Left) - 1, (int)Math.Round(rampRect.Top) - 1,
+                    rampWidth + 1, rampHeight + 1);
 
-            // 坐标轴
+            // 坐标轴（0~100 表示色带位置；连续模式下只跨数据范围那一段）
             int axisY = band.Bottom + 2;
             using (var pen = new Pen(Color.FromArgb(140, 140, 140)))
             {
-                g.DrawLine(pen, band.Left, axisY, band.Right - 1, axisY);
+                g.DrawLine(pen, rampRect.Left, axisY, rampRect.Right - 1, axisY);
             }
             using (var tickPen = new Pen(Color.FromArgb(140, 140, 140)))
             using (var brush = new SolidBrush(Color.FromArgb(90, 90, 90)))
@@ -142,7 +149,7 @@ namespace GIS.Display.UI
             {
                 for (int v = 0; v <= 100; v += 10)
                 {
-                    float x = XOf(v / 100.0);
+                    float x = XOfRampPositionContinuous(v / 100.0);
                     g.DrawLine(tickPen, x, axisY, x, axisY + 4);
                     string text = v.ToString();
                     SizeF size = g.MeasureString(text, font);
@@ -153,7 +160,7 @@ namespace GIS.Display.UI
             // 选中节点的竖向参考线
             if (selected != null)
             {
-                float sx = XOf(selected.Position);
+                float sx = IsContinuous ? XOfNode(selected) : XOf(selected.Position);
                 int lineTop = IsContinuous ? FreeRowTop : BookmarkTop;
                 using (var pen = new Pen(Color.FromArgb(70, 120, 180), 1f) { DashStyle = DashStyle.Dot })
                     g.DrawLine(pen, sx, lineTop, sx, band.Bottom);
@@ -825,3 +832,4 @@ namespace GIS.Display.UI
         #endregion
     }
 }
+

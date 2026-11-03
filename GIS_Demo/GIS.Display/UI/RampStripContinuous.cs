@@ -25,13 +25,26 @@ namespace GIS.Display.UI
         /// <summary>拉伸区间上界（对应色带 1）。</summary>
         public double Max;
 
+        /// <summary>
+        /// 绘图横轴的下界：比 <see cref="Min"/> 再往外扩一点（约 3% 跨度）。
+        /// KDE 曲线在真实最大/最小值之外仍有密度，扩一点才不会被两端硬裁断；
+        /// 色带仍然只覆盖 [Min, Max]，所以色带条画在横轴的中间一段。
+        /// </summary>
+        public double AxisMin;
+
+        /// <summary>绘图横轴的上界（<see cref="Max"/> 再往外扩一点）。</summary>
+        public double AxisMax;
+
+        /// <summary>横轴两端各扩出去多少。</summary>
+        public double AxisPad;
+
         /// <summary>统计量。</summary>
         public ContinuousStatistics Statistics;
 
         /// <summary>特殊值虚线（已合并、区间外的画在端点）。</summary>
         public List<ContinuousMark> Marks = new List<ContinuousMark>();
 
-        /// <summary>KDE 曲线（0~1，按 <see cref="CurveSamples"/> 个采样点）。</summary>
+        /// <summary>KDE 曲线（0~1，按 <see cref="CurveSamples"/> 个采样点，覆盖 [AxisMin, AxisMax]）。</summary>
         public double[] Density = new double[0];
 
         /// <summary>曲线采样点数。</summary>
@@ -54,11 +67,16 @@ namespace GIS.Display.UI
                 context.Min = context.Statistics.Min;
                 context.Max = context.Statistics.Max;
             }
+            // 横轴在数据范围外再扩 3%（全同值时按数值量级给一个最小扩展量）
+            double span = context.Max - context.Min;
+            context.AxisPad = span > 0 ? span * 0.03 : Math.Max(Math.Abs(context.Min) * 0.01, 0.5);
+            context.AxisMin = context.Min - context.AxisPad;
+            context.AxisMax = context.Max + context.AxisPad;
             context.Marks = ContinuousMarks.Build(context.Statistics);
             return context;
         }
 
-        /// <summary>把数值拉伸到 0~1（区间退化时取 0.5）。</summary>
+        /// <summary>把数值拉伸到 0~1（区间退化时取 0.5）。用于色带取色。</summary>
         public double Normalize(double value)
         {
             double span = Max - Min;
@@ -67,12 +85,39 @@ namespace GIS.Display.UI
             return t < 0 ? 0 : (t > 1 ? 1 : t);
         }
 
-        /// <summary>按采样点数重算 KDE 曲线（只在采样点数变化时重算）。</summary>
+        /// <summary>把数值映射到**横轴**上的 0~1（横轴比色带范围两端各宽一点，不夹紧）。</summary>
+        public double NormalizeAxis(double value)
+        {
+            double span = AxisMax - AxisMin;
+            if (span <= 0) return 0.5;
+            double t = (value - AxisMin) / span;
+            return t < 0 ? 0 : (t > 1 ? 1 : t);
+        }
+
+        /// <summary>横轴 0~1 位置对应的数值。</summary>
+        public double ValueOfAxis(double t)
+        {
+            return AxisMin + (AxisMax - AxisMin) * t;
+        }
+
+        /// <summary>色带位置（0~1，相对 [Min, Max]）→ 数值。</summary>
+        public double ValueOfRamp(double position)
+        {
+            return Min + (Max - Min) * position;
+        }
+
+        /// <summary>数值 → 色带位置（0~1，夹紧）。</summary>
+        public double RampPositionOf(double value)
+        {
+            return Normalize(value);
+        }
+
+        /// <summary>按采样点数重算 KDE 曲线（只在采样点数变化时重算）；曲线覆盖整个横轴（含两端扩展区）。</summary>
         public void EnsureDensity(int samples)
         {
             if (samples < 8) samples = 8;
             if (CurveSamples == samples && Density.Length == samples) return;
-            Density = KernelDensity.Estimate(Values, samples, Min, Max);
+            Density = KernelDensity.Estimate(Values, samples, AxisMin, AxisMax);
             CurveSamples = samples;
         }
 
@@ -211,24 +256,79 @@ namespace GIS.Display.UI
             }
         }
 
-        /// <summary>数值 → 横坐标（与色带同一条轴，两侧留了 buffer）。</summary>
+        /// <summary>数值 → 横坐标（整条横轴，含两端扩展区）。</summary>
         public float XOfValue(double value)
         {
             if (context == null) return XOf(0);
-            return XOf(context.Normalize(value));
+            return AxisXOf(context.NormalizeAxis(value));
+        }
+
+        /// <summary>横轴 0~1 → 横坐标。</summary>
+        private float AxisXOf(double t)
+        {
+            Rectangle band = BandRect;
+            return band.Left + (float)(t * (band.Width - 1));
+        }
+
+        /// <summary>横坐标 → 数值（拖动标签时用）。</summary>
+        private double ValueAt(float x)
+        {
+            Rectangle band = BandRect;
+            double t = band.Width <= 1 ? 0 : (x - band.Left) / (double)(band.Width - 1);
+            if (t < 0) t = 0;
+            if (t > 1) t = 1;
+            return context.ValueOfAxis(t);
+        }
+
+        /// <summary>横坐标 → 色带位置（0~1，相对数据范围）。</summary>
+        private double RampPositionAt(float x)
+        {
+            if (context == null) return PositionOf(x);
+            return context.RampPositionOf(ValueAt(x));
         }
 
         /// <summary>特殊值虚线的横坐标。</summary>
         public float MarkX(ContinuousMark mark)
         {
             if (mark == null) return float.NaN;
-            return XOf(mark.Position);
+            return XOfValue(mark.DataValue);
         }
 
-        /// <summary>节点位置对应的横坐标（不含避让偏移）。</summary>
+        /// <summary>节点位置对应的横坐标（节点位置是色带上的 0~1，先换成数值再映射到横轴）。</summary>
         public float XOfNode(ColorRampNode node)
         {
-            return node == null ? float.NaN : XOf(node.Position);
+            if (node == null) return float.NaN;
+            if (context == null) return XOf(node.Position);
+            return XOfValue(context.ValueOfRamp(node.Position));
+        }
+
+        // 连续模式下色带条只覆盖数据范围 [Min, Max]，横轴两端多出来的部分留白
+        private RectangleF ContinuousRampRect()
+        {
+            Rectangle band = BandRect;
+            float left = XOfValue(context.Min), right = XOfValue(context.Max);
+            if (right < left) { float t = left; left = right; right = t; }
+            return new RectangleF(left, band.Top, Math.Max(2f, right - left + 1), band.Height);
+        }
+
+        // 色带某一列对应的色带位置（0~1）；在数据范围之外返回 -1（该列不画色）
+        private double ContinuousRampColumn(int x, int width)
+        {
+            if (context == null) return width <= 1 ? 0 : (double)x / (width - 1);
+            RectangleF rect = ContinuousRampRect();
+            double t = width <= 1 ? 0 : (double)x / (width - 1);
+            double value = context.AxisMin + (context.AxisMax - context.AxisMin) *
+                ((rect.Left - BandRect.Left + t * (rect.Width - 1)) / Math.Max(1, BandRect.Width - 1));
+            double position = context.RampPositionOf(value);
+            if (value < context.Min - 1e-12 || value > context.Max + 1e-12) return -1;
+            return position;
+        }
+
+        // 色带位置（0~1）对应的横坐标（0~100 坐标轴用）
+        private float XOfRampPositionContinuous(double t)
+        {
+            if (context == null) return XOf(t);
+            return XOfValue(context.ValueOfRamp(t));
         }
 
         /// <summary>标签的横坐标（考虑避开重叠后的偏移）。</summary>
@@ -367,7 +467,7 @@ namespace GIS.Display.UI
             {
                 double t = (double)i / (ticks - 1);
                 float x = kde.Left + (float)(t * (kde.Width - 1));
-                double value = context.Min + (context.Max - context.Min) * t;
+                double value = context.AxisMin + (context.AxisMax - context.AxisMin) * t;
                 string text = ContinuousMarks.FormatValue(value);
                 SizeF size = g.MeasureString(text, font);
                 g.DrawLine(tickPen, x, XAxisY, x, XAxisY + 3);
@@ -422,26 +522,44 @@ namespace GIS.Display.UI
         }
 
         /// <summary>
-        /// 计算每条特殊值标注（竖排文字）的矩形：先放线的**右侧**，撞车时改放**左侧**；
-        /// 两侧都放不下就直接放弃该条文字（不再逐格挪位）。返回顺序与 <see cref="Marks"/> 一致。
+        /// 计算每条特殊值标注（竖排文字）的矩形。
+        /// 两条线靠得很近时，**左边那条的标注放到线的左侧、右边那条放到线的右侧**（从左到右读仍是
+        /// “标注—线—线—标注”，顺序不会颠倒）；首选的一侧放不下才试另一侧，两侧都放不下就放弃。
+        /// 返回顺序与 <see cref="Marks"/> 一致。
         /// </summary>
         public List<RectangleF> ComputeMarkLabelRects(Graphics graphics)
         {
             var result = new List<RectangleF>();
             var placed = new List<RectangleF>();
             Rectangle plot = KdeRect;
+            var xs = new float[Marks.Count];
+            var widths = new float[Marks.Count];
+            var heights = new float[Marks.Count];
             using (var font = new Font("Microsoft YaHei UI", MarkLabelSize))
             {
-                foreach (ContinuousMark mark in Marks)
+                for (int i = 0; i < Marks.Count; i++)
                 {
-                    SizeF size = graphics.MeasureString(mark.Label, font);
-                    float w = size.Height + 2;      // 竖排：宽 = 字高
-                    float h = size.Width + 2;       // 竖排：高 = 文字长度
-                    float x = MarkX(mark);
-                    var right = new RectangleF(x + 3, plot.Top + 2, w, h);
-                    var left = new RectangleF(x - 3 - w, plot.Top + 2, w, h);
+                    SizeF size = graphics.MeasureString(Marks[i].Label, font);
+                    widths[i] = size.Height + 2;    // 竖排：宽 = 字高
+                    heights[i] = size.Width + 2;    // 竖排：高 = 文字长度
+                    xs[i] = MarkX(Marks[i]);
+                }
+                for (int i = 0; i < Marks.Count; i++)
+                {
+                    float x = xs[i], w = widths[i], h = heights[i];
+                    // 与右侧最近的一条虚线靠得太近（放不下两个标注）→ 自己优先放左侧，把右侧让给它
+                    float nextGap = float.MaxValue;
+                    for (int j = 0; j < Marks.Count; j++)
+                        if (j != i && xs[j] > x + 0.5f) nextGap = Math.Min(nextGap, xs[j] - x);
+                    bool preferLeft = nextGap < 2 * w + 6;
+
+                    var leftRect = new RectangleF(x - 3 - w, plot.Top + 2, w, h);
+                    var rightRect = new RectangleF(x + 3, plot.Top + 2, w, h);
+                    RectangleF[] order = preferLeft
+                        ? new[] { leftRect, rightRect }
+                        : new[] { rightRect, leftRect };
                     RectangleF chosen = RectangleF.Empty;
-                    foreach (RectangleF candidate in new[] { right, left })
+                    foreach (RectangleF candidate in order)
                     {
                         if (candidate.Left < plot.Left || candidate.Right > plot.Right) continue;
                         if (placed.Any(r => r.IntersectsWith(candidate))) continue;
@@ -520,7 +638,7 @@ namespace GIS.Display.UI
         private void DrawBoundTag(Graphics g, ColorRampNode node, PointF center, bool isSelected)
         {
             float x = center.X;
-            float realX = XOf(node.Position);
+            float realX = XOfNode(node);
             int top = LockedRowTop + 1;
             int bottom = LockedRowBottom;
             const float hw = TagHalfWidth;
@@ -568,8 +686,8 @@ namespace GIS.Display.UI
         private PointF TagCenter(ColorRampNode node)
         {
             if (node == null) return new PointF(0, 0);
-            if (!node.IsBound || context == null) return new PointF(XOf(node.Position), FreeRowTop);
-            float realX = XOf(node.Position);
+            if (!node.IsBound || context == null) return new PointF(XOfNode(node), FreeRowTop);
+            float realX = XOfNode(node);
             float half = TagHalfWidth;
             var placed = new List<float>();
             int order = TagOrder(node);
@@ -603,7 +721,7 @@ namespace GIS.Display.UI
         // 已绑定标签的理想横坐标（用于避让计算，不含避让偏移）
         private float TagCenterOfLane(ColorRampNode node)
         {
-            return ClampTag(XOf(node.Position), TagHalfWidth);
+            return ClampTag(XOfNode(node), TagHalfWidth);
         }
 
         // 已绑定标签的排布顺序（按位置从左到右，位置相同按绑定标识）
@@ -714,7 +832,7 @@ namespace GIS.Display.UI
             dragTarget = null;
             snappedMarks.Clear();
             dragStartedBound = node != null && node.IsBound;
-            dragStartPixelX = node == null ? 0 : XOf(node.Position);
+            dragStartPixelX = node == null ? 0 : XOfNode(node);
             dragStartMouseY = mouseY;
             lastDragY = mouseY;
         }
@@ -758,7 +876,7 @@ namespace GIS.Display.UI
             else if (candidate == null)
             {
                 dragTarget = null;
-                dragNode.Position = PositionOf(px);
+                dragNode.Position = RampPositionAt(px);
             }
             ramp.Sort();
             bandDirty = true;
@@ -785,7 +903,7 @@ namespace GIS.Display.UI
             {
                 BindTo(node, target);
             }
-            else if (node.IsBound && Math.Abs(XOf(node.Position) - dragStartPixelX) > UnbindPixelThreshold)
+            else if (node.IsBound && Math.Abs(XOfNode(node) - dragStartPixelX) > UnbindPixelThreshold)
             {
                 Unbind(node);
             }
@@ -804,3 +922,4 @@ namespace GIS.Display.UI
         #endregion
     }
 }
+
