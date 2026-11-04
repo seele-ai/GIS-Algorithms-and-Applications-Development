@@ -37,6 +37,20 @@ namespace GIS.Toolbox
             //     map => new GIS.Toolbox.Tools.Overlay.IntersectToolForm(map), "两个面图层求交，输出面图层");
             // box.AddTool(ToolBoxControl.ProximityCategory, "缓冲分析（Buffer）",
             //     map => new GIS.Toolbox.Tools.Proximity.BufferToolForm(map), "按给定距离生成缓冲面");
+
+            // 叠加分析工具箱（王小宇）：裁剪 / 擦除 / 相交 / 交集取反
+            box.AddTool(ToolBoxControl.OverlayCategory, "裁剪（Clip）",
+                map => new GIS.Toolbox.Tools.Overlay.ClipToolForm(map),
+                "提取与裁剪要素相重叠的输入要素（输入为已选要素或整层，裁剪要素为面）");
+            box.AddTool(ToolBoxControl.OverlayCategory, "擦除（Erase）",
+                map => new GIS.Toolbox.Tools.Overlay.EraseToolForm(map),
+                "只保留输入要素位于擦除面之外的部分（输入为已选要素或整层，擦除要素为面）");
+            box.AddTool(ToolBoxControl.OverlayCategory, "相交（Intersect）",
+                map => new GIS.Toolbox.Tools.Overlay.IntersectToolForm(map),
+                "计算输入要素与相交图层的几何交集，输出维数取两者中较低的维数（线×线输出交点）");
+            box.AddTool(ToolBoxControl.OverlayCategory, "交集取反（Symmetrical Difference）",
+                map => new GIS.Toolbox.Tools.Overlay.SymDiffToolForm(map),
+                "输出输入要素与更新要素中互不重叠的部分（两组要素维数需一致）");
         }
     }
 }
