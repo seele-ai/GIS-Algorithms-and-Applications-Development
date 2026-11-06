@@ -198,7 +198,9 @@ namespace GIS.Toolbox.Tools.Proximity
             string fidName = UniqueFieldName(output.Fields, "ORIG_FID");
             output.Fields.Add(new Field(fidName, FieldTypeConstant.Int32, "原始要素编号"));
             int added = 0;
-            for (int distanceIndex = 0; distanceIndex < coordinateDistances.Count; distanceIndex++)
+            // 图层按要素顺序绘制，后写入的面位于上层。重叠圆盘因此按大到小输出，
+            // 让小半径圆盘最后绘制，避免被同一输入要素的大圆完全遮住。
+            for (int distanceIndex = coordinateDistances.Count - 1; distanceIndex >= 0; distanceIndex--)
             {
                 foreach (Feature source in inputs.InputFeatures)
                 {
