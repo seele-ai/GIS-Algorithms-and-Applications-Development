@@ -78,13 +78,15 @@ namespace GIS.Toolbox.UI
         /// <summary>输入要素下拉框里“已选要素”那一项的文字。</summary>
         public const string SelectionOptionText = "（当前所有图层的已选要素）";
         /// <summary>“运行结果”区域的高度（像素）。</summary>
-        private const int ResultHeight = 112;
+        private const int ResultHeight = 140;
 
         private readonly TableLayoutPanel grid;
         private readonly TableLayoutPanel root;
         private readonly TextBox resultBox;
         private readonly Button runButton;
         private readonly Button closeButton;
+        private TableLayoutPanel body;
+        private FlowLayoutPanel buttons;
         private int row;
 
         /// <summary>当前地图（工具从它取图层与已选要素，可能为 null）。</summary>
@@ -121,6 +123,7 @@ namespace GIS.Toolbox.UI
             StartPosition = FormStartPosition.CenterParent;
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            AutoScaleMode = AutoScaleMode.Dpi;
             MinimumSize = new Size(760, 0);
             Padding = new Padding(12);
 
@@ -143,7 +146,7 @@ namespace GIS.Toolbox.UI
                 Width = 640,
                 BackColor = Color.FromArgb(248, 248, 248),
                 ForeColor = Color.FromArgb(60, 60, 60),
-                WordWrap = false,
+                WordWrap = true,
                 Text = "尚未运行。填好上面的输入后点右下角的“运行”。"
             };
             runButton = new Button { Text = "运行", Width = 96 };
@@ -159,12 +162,13 @@ namespace GIS.Toolbox.UI
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 Dock = DockStyle.Top
             };
+            Shown += (s, e) => BeginInvoke(new Action(RefreshContentLayout));
         }
 
         /// <summary>收尾：把参数区、运行结果、按钮行按顺序放进窗口（派生类构造函数最后调用）。</summary>
         protected void FinishLayout()
         {
-            var buttons = new FlowLayoutPanel
+            buttons = new FlowLayoutPanel
             {
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -177,7 +181,7 @@ namespace GIS.Toolbox.UI
             int buttonsHeight = buttons.GetPreferredSize(Size.Empty).Height;
 
             // 上面参数区（按内容高度，绝不被裁掉）+ 运行结果（占满剩余高度），下面按钮行用 Dock=Bottom 贴住窗口底部
-            var body = new TableLayoutPanel
+            body = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
@@ -206,6 +210,25 @@ namespace GIS.Toolbox.UI
             int measured = Padding.Vertical + grid.GetPreferredSize(new Size(grid.Width > 0 ? grid.Width : gridWidth, 0)).Height
                 + ResultHeight + buttons.Height + 12;
             if (measured > ClientSize.Height) ClientSize = new Size(ClientSize.Width, measured);
+            PerformLayout();
+        }
+
+        /// <summary>添加由派生工具自行组合的紧凑参数行。</summary>
+        protected Label AddCustomField(string label, Control control)
+        {
+            return AddRow(label, control);
+        }
+
+        /// <summary>参数显隐改变后重新收紧窗口高度。</summary>
+        protected void RefreshContentLayout()
+        {
+            if (body == null || buttons == null) return;
+            grid.PerformLayout();
+            int gridWidth = Math.Max(640, grid.GetPreferredSize(new Size(640, 0)).Width);
+            int gridHeight = grid.GetPreferredSize(new Size(gridWidth, 0)).Height;
+            int width = Math.Max(760, Padding.Horizontal + gridWidth + 10);
+            int height = Padding.Vertical + gridHeight + ResultHeight + buttons.Height + 12;
+            ClientSize = new Size(width, height);
             PerformLayout();
         }
 
@@ -259,9 +282,10 @@ namespace GIS.Toolbox.UI
                     foreach (Feature feature in selected) all.Add(feature);
                 }
             }
-            string head = SelectionOptionText.TrimEnd('）');
-            if (all.Count == 0) return head + "：无）";
-            return head + "：" + SummarizeGeometry(all) + "，共 " + all.Count + " 个）";
+            // 收起状态使用短摘要，避免高 DPI/较大字体时文字被 ComboBox 右侧箭头遮住。
+            if (all.Count == 0) return "当前已选要素：无";
+            string compact = SummarizeGeometry(all).Replace(" 个", "").Replace(" ", "");
+            return "当前已选：" + compact + "（共" + all.Count + "）";
         }
 
         /// <summary>要素的几何类型（几何为空时退回图层类型）。</summary>
@@ -289,7 +313,9 @@ namespace GIS.Toolbox.UI
         protected TextBox AddTextParameterField(string label, string placeholder, string defaultValue = "")
         {
             var box = new TextBox { Width = 430, Text = defaultValue };
-            if (!string.IsNullOrEmpty(placeholder)) box.PlaceholderTextCompat(placeholder);
+            // .NET Framework 的兼容占位实现会占用 Text；已有默认值时不能再用占位文字覆盖它。
+            if (!string.IsNullOrEmpty(placeholder) && string.IsNullOrEmpty(defaultValue))
+                box.PlaceholderTextCompat(placeholder);
             AddRow(label, box);
             return box;
         }
@@ -313,6 +339,7 @@ namespace GIS.Toolbox.UI
             {
                 checks[i] = new CheckBox { Text = options[i], AutoSize = true };
                 if (grid.RowCount <= row) grid.RowCount = row + 1;
+                while (grid.RowStyles.Count <= row) grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
                 if (i == 0) grid.Controls.Add(new Label { Text = label, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, row);
                 grid.Controls.Add(checks[i], 1, row);
                 row++;
@@ -500,15 +527,17 @@ namespace GIS.Toolbox.UI
             };
         }
 
-        private void AddRow(string label, Control control)
+        private Label AddRow(string label, Control control)
         {
             // TableLayoutPanel 不会因为 SetCellPosition 自动增长行数，这里显式维护，
             // 外部（自动检查 / 后续同学）按 RowCount 遍历时就能看到全部输入项。
             if (grid.RowCount <= row) grid.RowCount = row + 1;
+            while (grid.RowStyles.Count <= row) grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var caption = new Label { Text = label, AutoSize = true, TextAlign = ContentAlignment.MiddleLeft };
             grid.Controls.Add(caption, 0, row);
             grid.Controls.Add(control, 1, row);
             row++;
+            return caption;
         }
 
         /// <summary>下拉框里的一个图层选项（ComboBox 显示 ToString()）。</summary>

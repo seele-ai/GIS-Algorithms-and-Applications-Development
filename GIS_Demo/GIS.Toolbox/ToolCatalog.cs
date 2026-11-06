@@ -51,6 +51,17 @@ namespace GIS.Toolbox
             box.AddTool(ToolBoxControl.OverlayCategory, "交集取反（Symmetrical Difference）",
                 map => new GIS.Toolbox.Tools.Overlay.SymDiffToolForm(map),
                 "输出输入要素与更新要素中互不重叠的部分（两组要素维数需一致）");
+
+            // 邻近分析工具箱：缓冲区 / 泰森多边形 / 多环缓冲区
+            box.AddTool(ToolBoxControl.ProximityCategory, "缓冲区（Buffer）",
+                map => new GIS.Toolbox.Tools.Proximity.BufferToolForm(map),
+                "支持固定/字段距离、平面/球面近似测地线、负面缓冲、线单侧及三种融合方式");
+            box.AddTool(ToolBoxControl.ProximityCategory, "泰森多边形（Thiessen）",
+                map => new GIS.Toolbox.Tools.Proximity.ThiessenToolForm(map),
+                "从点要素创建泰森多边形，可用默认外扩 10% 边界或当前地图范围");
+            box.AddTool(ToolBoxControl.ProximityCategory, "多环缓冲区（Multiple Ring Buffer）",
+                map => new GIS.Toolbox.Tools.Proximity.MultiRingBufferToolForm(map),
+                "按多个距离创建平面或球面近似测地线非重叠环/重叠圆盘，可仅保留输入面外部区域");
         }
     }
 }

@@ -12,4 +12,7 @@
     <ProjectReference Include="..\GIS.Display\GIS.Display.csproj" />
     <ProjectReference Include="..\..\MapObjects\GIS\GIS.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NetTopologySuite" Version="2.6.0" />
+  </ItemGroup>
 </Project>
