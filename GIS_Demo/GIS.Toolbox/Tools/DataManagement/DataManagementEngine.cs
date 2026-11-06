@@ -14,7 +14,7 @@ using P = NetTopologySuite.Geometries.Polygon;
 
 namespace GIS.Toolbox.Tools.DataManagement
 {
-    public enum ManagementOperation { Envelope, MinimumBoundary, ToLine, ToPoint, ToPolygon, Vertices }
+    public enum ManagementOperation { Envelope, MinimumBoundary, ToLine, ToPoint, ToPolygon, Vertices, MultipartToSinglepart, SplitAtVertices, Generalize }
     public sealed class ManagementResult
     {
         public FeatureClass FeatureClass;

@@ -52,8 +52,8 @@ namespace GIS.Toolbox
                 map => new GIS.Toolbox.Tools.Overlay.SymDiffToolForm(map),
                 "输出输入要素与更新要素中互不重叠的部分（两组要素维数需一致）");
 
-            // 数据管理工具箱：按课程要求的前六项顺序登记。
-            for (int i = 0; i < 6; i++)
+            // 数据管理工具箱：按课程要求的九项顺序登记。
+            for (int i = 0; i < GIS.Toolbox.Tools.DataManagement.DataManagementToolForm.Titles.Length; i++)
             {
                 var operation = (GIS.Toolbox.Tools.DataManagement.ManagementOperation)i;
                 box.AddTool(ToolBoxControl.DataManagementCategory, GIS.Toolbox.Tools.DataManagement.DataManagementToolForm.Titles[i],

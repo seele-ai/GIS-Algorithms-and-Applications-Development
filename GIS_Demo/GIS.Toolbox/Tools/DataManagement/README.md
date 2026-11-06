@@ -23,3 +23,20 @@
 ## 验证
 
 2026-11-06：GIS.sln 编译通过，0 警告、0 错误。独立验证程序 44 项检查通过，覆盖五种最小边界、五种折点模式、面内点、交点分割、线网构面、含洞与多部件、重叠线来源、退化边界、非法输入与选择集规则。六个工具均完成真实界面运行验证。
+
+## 数据管理最后三项（白宇丹）
+
+工具位于右侧“数据管理工具箱”底部：多部分到单部分、在折点处分割线、概化。
+选择输入图层；图层有选择集时仅处理已选要素，否则处理全层。填写不重复的输出图层名，运行后结果自动加入地图。输出继承属性、SRID、投影及地理基准，不修改原数据。
+
+- 多部分到单部分：MultiPoint、MultiLineString、MultiPolygon 按部件拆分。普通要素输出独立副本；孔洞仍属于原面。
+- 在折点处分割线：线及面的各内外环按相邻顶点生成两点线段，含闭合边。重复顶点造成的零长度段跳过。不在交点处额外打断。
+- 概化：迭代 Douglas-Peucker 算法，最大允许偏移量使用输入坐标单位（经纬度为度）。0 保留全部顶点。线端点保留；闭环分两段处理并保持闭合；输出顶点为原顶点子集。不自动修补无效结果，以避免新增顶点；如结果无效或退化，则回退到该输入要素原几何并报告数量。不保证不同要素之间公共边界的拓扑一致性。
+- ORIG_FID 为本次输入的从0开始的序号，非永久数据库ID；已有同名字段时使用后缀，保留原字段。
+
+验证项目：`GIS_Demo/GIS.Toolbox.FeatureProcessing.Checks`，独立运行，不改变主程序启动项目。
+
+```powershell
+dotnet build GIS_Demo/GIS.Toolbox.FeatureProcessing.Checks/GIS.Toolbox.FeatureProcessing.Checks.csproj -m:1
+.\GIS_Demo\GIS.Toolbox.FeatureProcessing.Checks\bin\Debug\net48\GIS.Toolbox.FeatureProcessing.Checks.exe
+```
